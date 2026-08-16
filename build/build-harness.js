@@ -74,6 +74,16 @@ if (fs.existsSync(pluginSrc)) {
   fs.cpSync(pluginSrc, pluginDest, { recursive: true })
   console.log('[build-harness] 插件已注入 -> packages/qq/dsh-qq-bridge')
 
+  // tsdown 根构建会把每个 workspace 包当目标（entry: lib/types/{index,invariant,startup}.js）。
+  // 插件是纯 JS ESM（真实入口 index.mjs），补桩文件让根构建通过；tsdown 产物不使用。
+  const stubDir = path.join(pluginDest, 'lib', 'types')
+  fs.mkdirSync(stubDir, { recursive: true })
+  const stubNote = '// stub: 让根 tsdown 构建通过（真实入口 index.mjs，不经 tsdown 打包）\n'
+  fs.writeFileSync(path.join(stubDir, 'index.js'), stubNote)
+  fs.writeFileSync(path.join(stubDir, 'invariant.js'), stubNote)
+  fs.writeFileSync(path.join(stubDir, 'startup.js'), stubNote)
+  console.log('[build-harness] 插件 tsdown 桩文件已生成')
+
   // apps/cli 依赖：healProfilesModuleFallback 以 apps/cli/package.json 为锚点
   // BFS 依赖闭包并软链进 $DSH_HOME/profiles/node_modules，插件由此可被 Loader 解析
   const cliPkgPath = path.join(h, 'apps', 'cli', 'package.json')
@@ -95,6 +105,21 @@ if (fs.existsSync(pluginSrc)) {
     src = src.replace(marker, "web: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@dsh-qq/qq-bridge'],")
     fs.writeFileSync(profileTs, src)
     console.log('[build-harness] PROFILE_TEMPLATES.web 已含 @dsh-qq/qq-bridge')
+  }
+
+  // tsdown 根配置：排除纯 JS 插件包（它没有 lib/types/* 入口，会被根构建当成目标而失败）
+  const tsdownCfg = path.join(h, 'tsdown.config.ts')
+  let tsrc = fs.readFileSync(tsdownCfg, 'utf8')
+  if (!tsrc.includes('dsh-qq-bridge')) {
+    const wm = "workspace: ['vendor/*', 'packages/*/*', 'apps/cli'],"
+    if (!tsrc.includes(wm)) {
+      console.error('[build-harness] tsdown.config.ts 结构变化，无法排除插件包（需手动核对）')
+      process.exit(1)
+    }
+    tsrc = tsrc.replace(wm,
+      "workspace: ['vendor/*', 'packages/*/*', 'apps/cli'].filter((p) => !p.includes('dsh-qq-bridge')),")
+    fs.writeFileSync(tsdownCfg, tsrc)
+    console.log('[build-harness] tsdown workspace 已排除 @dsh-qq/qq-bridge')
   }
 } else {
   console.warn('[build-harness] 未找到 qq-bridge/plugin，跳过插件注入')
