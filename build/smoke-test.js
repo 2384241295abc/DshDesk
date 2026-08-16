@@ -35,7 +35,7 @@ function checkExists(p, what) {
 
 // ---- 1/2. 内置 Node + 原生模块 ----
 if (!checkExists(node, '内置 Node')) process.exit(1)
-if (!checkExists(path.join(harness, 'apps', 'cli', 'src', 'bin.ts'), 'harness')) process.exit(1)
+if (!checkExists(path.join(harness, 'apps', 'cli', 'lib', 'bin.js'), 'harness')) process.exit(1)
 
 console.log(`[smoke] 内置 Node: ${node}`)
 // 原生模块检查：从真正依赖它们的包目录解析（hoisted 布局下根目录 resolve 不到）
@@ -64,7 +64,7 @@ if (!failed) {
   // DSH_HOME 透传（本地受限环境可隔离到 /tmp；CI 默认真实 home）
   const childEnv = { ...process.env }
   if (process.env.DSH_HOME) childEnv.DSH_HOME = process.env.DSH_HOME
-  const child = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', String(port)], {
+  const child = spawn(node, ['apps/cli/lib/bin.js', 'web', '--port', String(port)], {
     cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     detached: process.platform !== 'win32',
     env: childEnv,
@@ -186,7 +186,8 @@ async function qqE2E(baseEnv) {
 
   // mock OneBot（用系统 node；ws 从产物内解析）；双消息验证队列（连续消息回复不丢）
   const mockPath = path.join(proj, 'qq-bridge', 'test', 'mock-onebot.mjs')
-  const wsProbe = [path.join(harness, 'node_modules', 'ws'),
+  const wsProbe = [path.join(harness, 'node_modules', '@deepseek-ai', 'dsh-client-connection', 'node_modules', 'ws'),
+    path.join(harness, 'node_modules', 'ws'),
     path.join(harness, 'packages', 'host', 'webserver', 'node_modules', 'ws'),
     path.join(harness, 'node_modules', '.pnpm', 'node_modules', 'ws')].find((p) => fs.existsSync(p))
   if (!wsProbe) console.error('[smoke] QQ-E2E 警告: 未在产物中找到 ws，mock OneBot 可能无法启动')
@@ -205,7 +206,7 @@ async function qqE2E(baseEnv) {
     DEEPSEEK_BASE_URL: `http://127.0.0.1:${LLM_PORT}/v1`, DEEPSEEK_API_KEY: 'mock-key',
     DSH_QQ_ONEBOT_WS: `ws://127.0.0.1:${ONE_BOT}` }
   const e2ePort = 3082
-  const h = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', String(e2ePort)], {
+  const h = spawn(node, ['apps/cli/lib/bin.js', 'web', '--port', String(e2ePort)], {
     cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     detached: process.platform !== 'win32', env,
   })

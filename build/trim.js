@@ -71,10 +71,10 @@ let files = 0
 })(h)
 console.log(`source after trim: ${files} files`)
 
-// 5. 删除非运行时目录（文档/示例/测试支撑/原生构建等），显著减小产物体积
+// 5. 删除非运行时目录（文档/示例/测试支撑等），显著减小产物体积
+// 注意：native/ 是运行时依赖（@deepseek-ai/node-addon-landlock-run，sandbox-local 无条件 import），不可删
 const NON_RUNTIME_DIRS = [
   'website',        // 文档站点
-  'native',         // landlock 启动器（桌面壳不使用）
   'python',         // Python SDK（桌面壳为 Node 运行时）
   'docs',           // 文档源码
   'assets',         // 文档素材

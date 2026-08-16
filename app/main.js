@@ -84,7 +84,7 @@ async function startHarness() {
   const node = nodeExe()
   const cwd = harnessDir()
   if (!fs.existsSync(node)) { showError(`Node 运行时缺失：${node}`); return false }
-  if (!fs.existsSync(path.join(cwd, 'apps', 'cli', 'src', 'bin.ts'))) { showError(`harness 目录不完整：${cwd}`); return false }
+  if (!fs.existsSync(path.join(cwd, 'apps', 'cli', 'lib', 'bin.js'))) { showError(`harness 目录不完整：${cwd}`); return false }
 
   stopRequested = false
   fs.mkdirSync(path.dirname(logFile()), { recursive: true })
@@ -96,7 +96,7 @@ async function startHarness() {
   let child
   let spawnFailed = false
   try {
-    child = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web'], {
+    child = spawn(node, ['apps/cli/lib/bin.js', 'web'], {
       cwd, stdio: ['ignore', fdOut, fdErr], windowsHide: true,
       // POSIX: 独立进程组，便于整体终止（含孙进程）
       detached: process.platform !== 'win32',

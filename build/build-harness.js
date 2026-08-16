@@ -129,8 +129,17 @@ if (fs.existsSync(pluginSrc)) {
 fs.writeFileSync(path.join(h, '.npmrc'), 'manage-package-manager-versions=false\nnode-linker=hoisted\n')
 run('pnpm', ['install', '--no-frozen-lockfile'], h)
 run('pnpm', ['run', 'build'], h)
-// 构建完成后清理仅构建期需要的 dev 依赖（大幅减小 node_modules，缓解 CI 磁盘 14GB 上限）
-run('pnpm', ['prune', '--prod'], h)
+// 构建完成后重装为仅生产依赖（干净重建布局，避免 prune 残留残破链接；
+// 大幅减小 node_modules，缓解 CI 磁盘 14GB 上限）
+run('pnpm', ['install', '--prod', '--ignore-scripts', '--config.confirm-modules-purge=false'], h)
+// install --prod 在 darwin 上不链接 linux-only 的 landlock 入口包，但 sandbox-local
+// 无条件 import 它（模块解析必须存在；平台二进制是运行时动态解析，darwin 无对应包时优雅回退）
+const landlockEntry = path.join(h, 'native', 'landlock-run', 'packages', 'entry')
+const landlockDst = path.join(h, 'node_modules', '@deepseek-ai', 'node-addon-landlock-run')
+if (fs.existsSync(landlockEntry) && !fs.existsSync(landlockDst)) {
+  fs.cpSync(landlockEntry, landlockDst, { recursive: true })
+  console.log('[build-harness] 已补 landlock 入口包链接')
+}
 
 fs.rmSync(path.join(h, '.git'), { recursive: true, force: true })
 console.log('harness ready:', h)

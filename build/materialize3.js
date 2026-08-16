@@ -168,6 +168,7 @@ function replicateVirtualSiblings(realDir, destDir) {
 function replicateKoromix() {
   const platform = `${process.platform}-${process.arch}`
   const pnpmRoot = path.join(H, 'node_modules', '.pnpm')
+  if (!fs.existsSync(pnpmRoot)) return   // .pnpm 已删除（重跑幂等）
   const storeDirs = fs.readdirSync(pnpmRoot).filter((n) => n.startsWith('@koromix+koffi-'))
   const storeDir = storeDirs.find((n) => n.includes(`koffi-${platform}`))
   if (!storeDir) return
@@ -231,9 +232,10 @@ function replicateAllVirtualSiblings() {
   }
   let replicated = 0
   ;(function scan(dir) {
-    // 跳过 .pnpm store 自身与根 node_modules/@deepseek-ai 镜像（它们是源，无需补齐）
+    // 跳过 .pnpm store 自身（它是源，无需补齐）
     if (path.basename(dir) === '.pnpm') return
-    if (dir === DSAI) return
+    // 注意：不跳过根 node_modules/@deepseek-ai —— 预填充的 workspace 包副本
+    // 的嵌套 node_modules 依赖同样需要补齐兄弟依赖（如 settings-file 的 chokidar→readdirp）
     let entries
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
@@ -252,6 +254,9 @@ function replicateAllVirtualSiblings() {
           replicateVirtualSiblings(real, p)
           replicated += fs.readdirSync(path.dirname(p)).length - before
         }
+        // 递归进入该包副本的 node_modules（嵌套依赖同样需要补齐兄弟依赖）
+        const nestedNM = path.join(p, 'node_modules')
+        if (fs.existsSync(nestedNM)) scan(nestedNM)
       } else {
         scan(p)
       }
