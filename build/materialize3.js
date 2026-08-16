@@ -261,6 +261,15 @@ function replicateAllVirtualSiblings() {
 }
 replicateAllVirtualSiblings()
 
+// 5. 删除 .pnpm 虚拟 store：walk 已把全部符号链接解引用为实体副本，
+//    依赖也已补齐到各消费方 node_modules，store 不再被引用——删除可省约一半体积
+//    （缓解 CI 14GB 磁盘上限与产物体积）。
+const pnpmStoreDir = path.join(H, 'node_modules', '.pnpm')
+if (fs.existsSync(pnpmStoreDir)) {
+  fs.rmSync(pnpmStoreDir, { recursive: true, force: true })
+  console.log('removed node_modules/.pnpm store')
+}
+
 // verify: count reparse points
 let links = 0
 ;(function scan(d) {

@@ -129,6 +129,8 @@ if (fs.existsSync(pluginSrc)) {
 fs.writeFileSync(path.join(h, '.npmrc'), 'manage-package-manager-versions=false\nnode-linker=hoisted\n')
 run('pnpm', ['install', '--no-frozen-lockfile'], h)
 run('pnpm', ['run', 'build'], h)
+// 构建完成后清理仅构建期需要的 dev 依赖（大幅减小 node_modules，缓解 CI 磁盘 14GB 上限）
+run('pnpm', ['prune', '--prod'], h)
 
 fs.rmSync(path.join(h, '.git'), { recursive: true, force: true })
 console.log('harness ready:', h)

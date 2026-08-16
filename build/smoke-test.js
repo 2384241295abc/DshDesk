@@ -116,6 +116,33 @@ if (!failed) {
   })()
 }
 
+// 内置微型 mock LLM：OpenAI 兼容 SSE，单行为（success），独立子进程
+function startInlineMockLlm(port) {
+  const script = `
+    const http = require('node:http')
+    http.createServer((req, res) => {
+      if (req.url.endsWith('/chat/completions') && req.method === 'POST') {
+        let body = ''
+        req.on('data', (d) => { body += d })
+        req.on('end', () => {
+          res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive' })
+          const chunk = (delta, finish) => JSON.stringify({ id: 'mock-1', object: 'chat.completion.chunk', model: 'x', choices: [{ index: 0, delta, finish_reason: finish || null }] })
+          res.write('data: ' + chunk({ role: 'assistant', content: '' }) + '\\n\\n')
+          res.write('data: ' + chunk({ content: 'mock response recovered' }) + '\\n\\n')
+          res.write('data: ' + chunk({}, 'stop') + '\\n\\n')
+          res.end('data: [DONE]\\n\\n')
+        })
+      } else {
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}')
+      }
+    }).listen(${port}, '127.0.0.1')
+  `
+  return spawn(process.execPath, ['-e', script], {
+    stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32',
+  })
+}
+
 // QQ 桥端到端：mock LLM + mock OneBot → 组装产物（内置 Node + 注入插件）→ 回复回传
 async function qqE2E(baseEnv) {
   const LLM_PORT = 8010
@@ -140,13 +167,9 @@ async function qqE2E(baseEnv) {
     return false
   }
 
-  console.log('[smoke] QQ-E2E: 启动 mock LLM + mock OneBot …')
-  // mock LLM（用内置 Node + 产物内 llm-mock-server）
-  const llm = spawn(node, ['--import', 'tsx/esm', 'packages/test-support/llm-mock-server/src/bin.ts',
-    '--port', String(LLM_PORT), '--api-key', 'mock-key', '--sequence', 'success', '--repeat-last'], {
-    cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-    detached: process.platform !== 'win32',
-  })
+  console.log('[smoke] QQ-E2E: 启动内置 mock LLM + mock OneBot …')
+  // 内置微型 mock LLM（OpenAI 兼容 SSE，单行为 success），不依赖产物内的 test-support 包
+  const llm = startInlineMockLlm(LLM_PORT)
   procs.push(llm)
   let llmOut = ''
   llm.stdout.on('data', (d) => { llmOut += d })
@@ -158,13 +181,14 @@ async function qqE2E(baseEnv) {
         body: JSON.stringify({ model: 'x', messages: [{ role: 'user', content: 'ping' }] }) })
       return r.ok
     } catch { return false }
-  }, 60000, 'mock LLM 就绪')
+  }, 30000, 'mock LLM 就绪')
   if (!llmReady) fail('mock LLM 未就绪')
 
   // mock OneBot（用系统 node；ws 从产物内解析）；双消息验证队列（连续消息回复不丢）
   const mockPath = path.join(proj, 'qq-bridge', 'test', 'mock-onebot.mjs')
-  const wsProbe = [path.join(harness, 'node_modules', '.pnpm', 'node_modules', 'ws'),
-    path.join(harness, 'node_modules', 'ws')].find((p) => fs.existsSync(p))
+  const wsProbe = [path.join(harness, 'node_modules', 'ws'),
+    path.join(harness, 'packages', 'host', 'webserver', 'node_modules', 'ws'),
+    path.join(harness, 'node_modules', '.pnpm', 'node_modules', 'ws')].find((p) => fs.existsSync(p))
   if (!wsProbe) console.error('[smoke] QQ-E2E 警告: 未在产物中找到 ws，mock OneBot 可能无法启动')
   const onebot = spawn(process.execPath, [mockPath, '--port', String(ONE_BOT),
     '--script', 'private:10001:QQ桥端到端测试一|private:10001:QQ桥端到端测试二', '--gap', '4000'], {

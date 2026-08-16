@@ -70,3 +70,25 @@ let files = 0
   }
 })(h)
 console.log(`source after trim: ${files} files`)
+
+// 5. 删除非运行时目录（文档/示例/测试支撑/原生构建等），显著减小产物体积
+const NON_RUNTIME_DIRS = [
+  'website',        // 文档站点
+  'native',         // landlock 启动器（桌面壳不使用）
+  'python',         // Python SDK（桌面壳为 Node 运行时）
+  'docs',           // 文档源码
+  'assets',         // 文档素材
+  'examples',       // 演示样例
+  'scripts',        // 构建期脚本
+]
+let removedDirs = 0
+for (const d of NON_RUNTIME_DIRS) {
+  const p = path.join(h, d)
+  if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); removedDirs++ }
+}
+// 测试支撑与演示包（冒烟测试已改用内置 mock，不再依赖）
+for (const d of ['test-support', 'examples']) {
+  const p = path.join(h, 'packages', d)
+  if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); removedDirs++ }
+}
+if (removedDirs > 0) console.log(`trimmed non-runtime dirs: ${removedDirs}`)
