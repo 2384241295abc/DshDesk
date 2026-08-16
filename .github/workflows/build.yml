@@ -28,9 +28,9 @@ jobs:
         with:
           node-version: 24
 
-      - name: Setup pnpm 10
+      - name: Setup pnpm 11
         run: |
-          npm install -g pnpm@10
+          npm install -g pnpm@11
           pnpm --version
 
       - name: Install Inno Setup (Windows)
@@ -63,6 +63,10 @@ jobs:
 
       - name: Assemble desktop app
         run: node build/assemble.js
+
+      # ---------- 冒烟测试：验证产物可运行（防上游漂移/pnpm 错配导致的"全绿但运行时坏"） ----------
+      - name: Smoke test assembled app
+        run: node build/smoke-test.js --app build/DeepSeekHarnessApp --port 3081
 
       # ---------- Windows: Inno Setup 安装包 ----------
       - name: Compile installer (ISCC)

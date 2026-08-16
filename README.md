@@ -13,6 +13,7 @@
 - **无边框窗口**：UI 铺满窗口，右上角内嵌最小化 / 最大化 / 关闭按钮
 - **单实例**：重复启动不会拉起多个后端
 - **免管理员**：Windows 安装到 `%LocalAppData%\Programs\DeepSeek Harness`
+- **QQ 远程交互**：内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），配置 NapCat/Lagrange 后即可通过 QQ 向 Harness 发任务并接收回复（见 [QQ 远程交互](#qq-远程交互)）
 
 ## 📦 产物
 
@@ -32,30 +33,35 @@
 ```
 app/                      Electron 桌面应用源码
   main.js                 主进程：启动后端、注入窗口控制按钮
-  preload.js / titlebar-preload.js    preload 脚本
-  renderer/               渲染页面
+  titlebar-preload.js     preload 脚本（窗口控制 IPC）
+  renderer/               渲染页面（splash 启动页）
 build/                    构建脚本与产物（跨平台，Node 实现）
-  build-harness.js        克隆 deepseek-harness、准备 .npmrc、pnpm 构建
+  build-harness.js        克隆 deepseek-harness（锁定 commit）+ 注入 qq-bridge 插件 + pnpm 构建
   materialize3.js         node_modules 链接物化（消除 junction/符号链接）
-  download-node.js        按平台下载内置 Node 运行时（win/darwin/linux × x64/arm64）
+  download-node.js        按平台下载内置 Node 运行时（含 SHASUMS 校验）
   trim.js                 精简 harness（跨平台版 trim.ps1）
   assemble.js             组装应用目录（Windows robocopy / POSIX cp -aL）
   convert-icon.js         SVG -> ICO（png-to-ico）+ PNG 源图
-  assemble.ps1 / trim.ps1 Windows 本地构建脚本（与 assemble.js/trim.js 等价）
+  smoke-test.js           CI/本地冒烟测试（产物启动 + 3080 探测 + 原生模块检查）
+qq-bridge/                QQ 远程交互桥（OneBot 11）
+  plugin/                 @dsh-qq/qq-bridge Cordis 插件（随 harness 注入分发）
+  test/                   mock OneBot 服务器 + 测试补丁（本地联调用）
 setup.iss                 Inno Setup 安装脚本（本地/CI 均可用）
 log.svg                   应用图标（DeepSeek logo）
 ```
 
 ## 🔧 构建流程
 
-> 本地需要：Node.js ≥ 22、[pnpm 10](https://pnpm.io/)（注意：**必须用 pnpm 10**，
-> pnpm 11 移除了 hoisted linker）；Windows 额外需要 [Inno Setup 7](https://jrsoftware.org/isdl.php)。
+> 本地需要：Node.js ≥ 22、[pnpm 11](https://pnpm.io/)（上游 harness 已用 pnpm 11 的
+> `allowBuilds` 机制；pnpm 10 会静默跳过原生模块构建，**必须用 pnpm 11**）；
+> Windows 额外需要 [Inno Setup 6](https://jrsoftware.org/isdl.php)。
 > CI 三平台全自动，无需本地环境。
 
-### 1. 准备 Harness 依赖（pnpm 10 + hoisted）
+### 1. 准备 Harness 依赖（pnpm 11 + hoisted）
 
 ```bash
-node build/build-harness.js        # 克隆 → 删 packageManager → .npmrc(hoisted) → pnpm install → pnpm build
+node build/build-harness.js        # 克隆(锁定 commit 47f9438, dsh 0.1.0-rc.5) → 注入插件 → .npmrc(hoisted) → pnpm install → pnpm build
+# 覆盖锁定版本：HARNESS_COMMIT=<sha> node build/build-harness.js；强制重拉：HARNESS_FORCE=1
 ```
 
 ### 2. 物化链接 + 精简
@@ -65,13 +71,14 @@ node build/materialize3.js resources/harness   # junction/符号链接 → 真�
 node build/trim.js                             # 删除冗余 @deepseek-ai 副本、拷贝 web 前端
 ```
 
-### 3. 运行时 + 组装
+### 3. 运行时 + 组装 + 冒烟
 
 ```bash
-node build/download-node.js v24.14.0           # 内置 Node（按当前平台/架构）
+node build/download-node.js v24.14.0           # 内置 Node（按当前平台/架构，含 SHASUMS 校验）
 npm install                                    # electron + sharp + png-to-ico
-node build/convert-icon.js log.svg build/app.ico
+node build/convert-icon.js                     # log.svg -> build/app.ico + PNG 源图
 node build/assemble.js                         # 组装到 build/DeepSeekHarnessApp
+node build/smoke-test.js --app build/DeepSeekHarnessApp   # 冒烟：产物启动 + 3080 探测 + 原生模块
 ```
 
 ### 4. 打包
@@ -94,7 +101,19 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux.tar.gz Dee
 ## ⚠️ 注意
 
 - 用户数据存放在 `~/.dsh`（与安装目录分离），卸载后保留
-- 服务监听 `http://127.0.0.1:3080`，关闭窗口即停止
+- 服务监听 `http://127.0.0.1:3080`；**关闭窗口仅隐藏到托盘，服务继续运行**，托盘「退出」才真正停服
+
+## QQ 远程交互
+
+应用内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），通过第三方 QQ 框架（如 [NapCat](https://github.com/NapNeko/NapCatQQ)、Lagrange）提供远程交互渠道。
+
+1. 部署 NapCat/Lagrange（绑定一个 QQ 号），启用 **正向 WebSocket**，记下地址（如 `ws://127.0.0.1:6700`）与可选 access token
+2. 设置桥的 WS 地址：
+   - 环境变量（推荐，桌面壳透传）：`DSH_QQ_ONEBOT_WS=ws://127.0.0.1:6700`、`DSH_QQ_ONEBOT_TOKEN=...`
+   - 或 profile 补丁：`~/.dsh/profiles/web/cordis.patch.yml` 中覆盖 `qq-bridge` 行配置
+3. 向该 QQ 号发消息即触发 Harness 会话（私聊/群消息各自映射独立会话，回复流式回传）
+
+> MVP 范围：发任务 + 流式回复。模型发起的提问/审批在 QQ 端默认自动拒绝并提示（`autoAnswer: reject`），可改为 `allow-once` 自动放行。
 
 ## 📄 许可
 

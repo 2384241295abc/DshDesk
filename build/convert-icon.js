@@ -1,12 +1,14 @@
 'use strict'
 // 用 sharp 渲染 PNG，png-to-ico 组装 ICO（PNG 帧格式，与 Pillow 一致，Inno Setup 兼容）
+// 用法: node build/convert-icon.js [源 SVG] [输出 ico]   （默认项目内 log.svg -> build/app.ico）
 const sharp = require('sharp')
 const fs = require('node:fs')
 const path = require('node:path')
 const { imagesToIco } = require('png-to-ico')
 
-const SRC = process.argv[2] || 'C:/Users/AzurLane/DeepSeekHarnessDesktop/log.svg'
-const OUT = process.argv[3] || 'C:/Users/AzurLane/DeepSeekHarnessDesktop/build/app.ico'
+const root = path.dirname(path.dirname(path.resolve(__filename)))
+const SRC = process.argv[2] || path.join(root, 'log.svg')
+const OUT = process.argv[3] || path.join(root, 'build', 'app.ico')
 const SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 async function renderPng(size) {

@@ -44,7 +44,7 @@ console.error(`workspace packages: ${pkgs.length}`)
 fs.mkdirSync(DSAI, { recursive: true })
 for (const e of fs.readdirSync(DSAI)) {
   const p = path.join(DSAI, e)
-  try { if (fs.lstatSync(p).isSymbolicLink()) fs.unlinkSync(p) } catch {}
+  try { if (fs.lstatSync(p).isSymbolicLink()) fs.rmSync(p, { force: true }) } catch {}
 }
 let copied = 0
 for (const p of pkgs) {
@@ -65,15 +65,17 @@ let replaced = 0, deleted = 0
     if (e.isSymbolicLink()) {
       let r, st
       try { r = fs.realpathSync(p); st = fs.statSync(r) } catch {
-        try { fs.unlinkSync(p); deleted++ } catch {}
+        // 失效链接：Windows 上目录 junction 用 unlinkSync 可能 EPERM，统一用 rmSync
+        try { fs.rmSync(p, { force: true }); deleted++ } catch {}
         continue
       }
       if (st.isDirectory()) {
-        fs.unlinkSync(p)
+        // 目录符号链接/junction：rmSync 跨平台安全删除（旧版 unlinkSync 在 Windows junction 上有 EPERM 风险）
+        fs.rmSync(p, { recursive: true, force: true })
         copyDir(r, p, true)   // skip target's node_modules (root covers deps)
         replaced++
       } else {
-        fs.unlinkSync(p)
+        fs.rmSync(p, { force: true })
         fs.copyFileSync(r, p)
         replaced++
       }

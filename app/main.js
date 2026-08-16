@@ -94,14 +94,20 @@ async function startHarness() {
   fs.writeSync(fdOut, `\n===== ${new Date().toISOString()} DeepSeek Harness 启动 =====\n`)
 
   let child
+  let spawnFailed = false
   try {
     child = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web'], {
       cwd, stdio: ['ignore', fdOut, fdErr], windowsHide: true,
+      // POSIX: 独立进程组，便于整体终止（含孙进程）
+      detached: process.platform !== 'win32',
     })
   } catch (e) { showError(`无法启动进程：${String(e.message || e)}`); return false }
   serverProcess = child
 
-  child.on('error', (e) => { if (!stopRequested) showError(`进程错误：${String(e.message || e)}`) })
+  child.on('error', (e) => {
+    spawnFailed = true
+    if (!stopRequested) showError(`进程错误：${String(e.message || e)}`)
+  })
   child.on('exit', (code) => {
     if (serverProcess === child) serverProcess = null
     if (!stopRequested) showError(`harness 进程退出（码 ${code ?? 'unknown'}），见日志`)
@@ -111,10 +117,20 @@ async function startHarness() {
   while (true) {
     if (await probeServer()) return true
     if (stopRequested) return false
+    if (spawnFailed) { showError('harness 进程启动失败（spawn error），见日志'); return false }
     if (child.exitCode !== null) { showError(`harness 启动失败（码 ${child.exitCode}），见日志`); return false }
     if (Date.now() > deadline) { showError(`启动超时（${START_TIMEOUT_MS / 1000}s），见日志`); return false }
     await delay(1000)
   }
+}
+
+const delay2 = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function killGroup(pid, signal) {
+  try { process.kill(-pid, signal) } catch { /* 进程可能已退出 */ }
+}
+function groupAlive(pid) {
+  try { process.kill(-pid, 0); return true } catch { return false }
 }
 
 function stopHarness() {
@@ -124,7 +140,13 @@ function stopHarness() {
       if (process.platform === 'win32') {
         spawnSync('taskkill', ['/pid', String(serverProcess.pid), '/T', '/F'], { windowsHide: true })
       } else {
-        process.kill(serverProcess.pid, 'SIGTERM')
+        // 先 SIGTERM 整个进程组，3 秒后未退出再 SIGKILL（防孤儿孙进程占住 3080）
+        const pid = serverProcess.pid
+        killGroup(pid, 'SIGTERM')
+        ;(async () => {
+          await delay2(3000)
+          if (groupAlive(pid)) killGroup(pid, 'SIGKILL')
+        })()
       }
     } catch { /* 忽略 */ }
     serverProcess = null
@@ -188,9 +210,30 @@ function openUi() {
       preload: path.join(__dirname, 'titlebar-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
   uiWindow.loadURL(`http://127.0.0.1:${HARNESS_PORT}`)
+  // 只允许停留在 harness 本机源，防止页面跳转外域后 preload/注入控件被带出去
+  const harnessOrigin = `http://127.0.0.1:${HARNESS_PORT}`
+  uiWindow.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith(harnessOrigin)) e.preventDefault()
+  })
+  uiWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(harnessOrigin)) return { action: 'allow' }
+    // 外部链接交给系统浏览器（新窗口与本窗口同 origin 除外）
+    require('node:child_process').spawn(
+      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open',
+      process.platform === 'win32' ? ['/c', 'start', '', url] : [url],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+    return { action: 'deny' }
+  })
+  uiWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    // 后端尚未就绪时的加载失败：短暂等待后自动重载
+    if (url.startsWith(harnessOrigin)) setTimeout(() => uiWindow?.webContents.reload(), 1500)
+    console.error(`load failed ${code}: ${desc}`)
+  })
   uiWindow.on('page-title-updated', (e) => e.preventDefault())
   uiWindow.on('closed', () => { uiWindow = null })
   // 点关闭（✕）不退出，隐藏到托盘，服务继续运行
@@ -210,8 +253,9 @@ function openUi() {
 }
 
 // 向 harness 页面注入浮动的窗口控制按钮（右上角）与拖拽区
-// 用 Segoe MDL2 Assets（Windows 原生图标字体）渲染，观感与系统按钮一致
+// Windows 用 Segoe MDL2 Assets 原生图标字体；macOS/Linux 用内联 SVG（避免豆腐块）
 function injectWindowControls(wc) {
+  const isWin = process.platform === 'win32'
   const css = `
     .dsh-drag-region { position: fixed; top: 0; left: 0; right: 138px; height: 32px; -webkit-app-region: drag; z-index: 2147483646; }
     .dsh-win-controls { position: fixed; top: 0; right: 0; height: 32px; display: flex; z-index: 2147483647; -webkit-app-region: no-drag; }
@@ -221,26 +265,34 @@ function injectWindowControls(wc) {
       font-size: 10px; line-height: 32px; color: #595959;
       display: flex; align-items: center; justify-content: center; cursor: default;
     }
+    .dsh-win-controls button svg { width: 10px; height: 10px; fill: currentColor; }
     .dsh-win-controls button:hover { background: rgba(0,0,0,0.06); color: #000; }
     .dsh-win-controls button:active { background: rgba(0,0,0,0.12); }
     .dsh-win-controls button.dsh-close:hover { background: #e81123; color: #fff; }
     .dsh-win-controls button.dsh-close:active { background: #c50f1f; }
   `
   wc.insertCSS(css).catch(() => {})
+  const isWinFlag = isWin ? 'true' : 'false'
   const js = `(function(){
     if (document.querySelector('.dsh-win-controls')) return;
-    var MIN='\\uE921', MAX='\\uE922', REST='\\uE923', CLOSE='\\uE8BB';
+    var IS_WIN = ${isWinFlag};
+    var GLYPH_MIN='\\uE921', GLYPH_MAX='\\uE922', GLYPH_REST='\\uE923', GLYPH_CLOSE='\\uE8BB';
+    var SVG_MIN='<svg viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1"/></svg>';
+    var SVG_MAX='<svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+    var SVG_REST='<svg viewBox="0 0 10 10"><path d="M2.5 1.5 h5.5 v5.5 h-5.5 z" fill="none" stroke="currentColor" stroke-width="1"/><path d="M1.5 2.5 v6 h6" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+    var SVG_CLOSE='<svg viewBox="0 0 10 10"><path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" stroke="currentColor" stroke-width="1"/></svg>';
+    function btnContent(glyph, svg){ return IS_WIN ? glyph : svg; }
     var drag = document.createElement('div'); drag.className = 'dsh-drag-region'; document.body.appendChild(drag);
     var bar = document.createElement('div'); bar.className = 'dsh-win-controls';
-    var minBtn = document.createElement('button'); minBtn.textContent = MIN; minBtn.title = '最小化';
-    var maxBtn = document.createElement('button'); maxBtn.textContent = MAX; maxBtn.title = '最大化';
-    var closeBtn = document.createElement('button'); closeBtn.textContent = CLOSE; closeBtn.className = 'dsh-close'; closeBtn.title = '关闭';
+    var minBtn = document.createElement('button'); minBtn.innerHTML = btnContent(GLYPH_MIN, SVG_MIN); minBtn.title = '最小化';
+    var maxBtn = document.createElement('button'); maxBtn.innerHTML = btnContent(GLYPH_MAX, SVG_MAX); maxBtn.title = '最大化';
+    var closeBtn = document.createElement('button'); closeBtn.innerHTML = btnContent(GLYPH_CLOSE, SVG_CLOSE); closeBtn.className = 'dsh-close'; closeBtn.title = '关闭';
     minBtn.addEventListener('click', function(){ window.win && window.win.minimize(); });
     maxBtn.addEventListener('click', function(){ window.win && window.win.maximize(); });
     closeBtn.addEventListener('click', function(){ window.win && window.win.close(); });
     bar.appendChild(minBtn); bar.appendChild(maxBtn); bar.appendChild(closeBtn);
     document.body.appendChild(bar);
-    function setMax(v){ maxBtn.textContent = v ? REST : MAX; maxBtn.title = v ? '还原' : '最大化'; }
+    function setMax(v){ maxBtn.innerHTML = btnContent(v ? GLYPH_REST : GLYPH_MAX, v ? SVG_REST : SVG_MAX); maxBtn.title = v ? '还原' : '最大化'; }
     if (window.win && window.win.isMaximized) window.win.isMaximized().then(setMax).catch(function(){});
     if (window.win && window.win.onMaximizedChange) window.win.onMaximizedChange(setMax);
   })();`

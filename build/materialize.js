@@ -75,10 +75,10 @@ function walk(dir) {
         continue
       }
       if (st.isDirectory()) {
-        fs.rmdirSync(p)                       // 移除 junction 本身
+        fs.rmSync(p, { recursive: true, force: true })   // 移除 junction 本身（rmdirSync 在 Windows junction 也可能 EPERM）
         copyDirFromTarget(real, p)
       } else {
-        fs.unlinkSync(p)
+        fs.rmSync(p, { force: true })
         copyFile(real, p)
       }
     } else if (e.isDirectory()) {

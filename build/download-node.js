@@ -41,6 +41,24 @@ async function main() {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`)
   fs.writeFileSync(archive, Buffer.from(await res.arrayBuffer()))
 
+  // SHASUMS256 校验（供应链安全）
+  const sumsUrl = `https://nodejs.org/dist/${VERSION}/SHASUMS256.txt`
+  console.log(`verify via ${sumsUrl}`)
+  const sumsRes = await fetch(sumsUrl)
+  if (!sumsRes.ok) throw new Error(`HTTP ${sumsRes.status}: ${sumsUrl}`)
+  const sumsText = await sumsRes.text()
+  const expected = sumsText.split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.endsWith(`  ${file}`) || l.endsWith(` *${file}`))
+    ?.split(/\s+/)[0]
+  if (!expected) throw new Error(`SHASUMS256.txt 中未找到 ${file}`)
+  const { createHash } = require('node:crypto')
+  const actual = createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
+  if (actual !== expected) {
+    throw new Error(`SHA256 校验失败: 期望 ${expected}, 实际 ${actual}`)
+  }
+  console.log(`sha256 ok: ${actual.slice(0, 16)}…`)
+
   // tar 自动识别格式：Windows 的 bsdtar 解 zip，GNU tar 解 tar.gz
   const r = spawnSync('tar', ['-xf', archive, '-C', tmp], { stdio: 'inherit' })
   if (r.status !== 0) throw new Error(`tar extract failed (exit ${r.status})`)

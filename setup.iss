@@ -4,9 +4,9 @@
   #define MyAppVersion "0.1.0"
 #endif
 #define MyAppExeName "DeepSeekHarness.exe"
-; 项目根路径：本地默认值，CI 上用 /DProjectDir= 覆盖
+; 项目根路径：默认取本脚本所在目录（即仓库根），CI 上用 /DProjectDir= 覆盖
 #ifndef ProjectDir
-  #define ProjectDir "C:\Users\AzurLane\DeepSeekHarnessDesktop"
+  #define ProjectDir RemoveBackslash(SourcePath)
 #endif
 #define AppDirSource ProjectDir + "\build\DeepSeekHarnessApp"
 
@@ -54,3 +54,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; 卸载前停掉应用及 harness 进程树（防 node 孤儿占住 3080、文件被占用删不掉）
+Filename: "taskkill"; Parameters: "/IM {#MyAppExeName} /T /F"; Flags: runhidden; RunOnceId: "StopApp"

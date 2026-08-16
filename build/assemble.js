@@ -64,6 +64,10 @@ if (platform === 'win32') {
   copyContents(appSrc, path.join(resDir, 'app'))
   copyContents(nodeSrc, path.join(resDir, 'node'))
   copyContents(harnessSrc, path.join(resDir, 'harness'))
+  // 便携版托盘图标：appIcon() 在 exe 同目录找 app.ico
+  const ico = path.join(root, 'app.ico')
+  if (fs.existsSync(ico)) fs.copyFileSync(ico, path.join(out, 'app.ico'))
+  else console.warn('[assemble] 未找到 build/app.ico，便携版托盘图标将为空')
 } else if (platform === 'darwin') {
   const appDir = path.join(out, 'DeepSeekHarness.app')
   const macosDir = path.join(appDir, 'Contents', 'MacOS')

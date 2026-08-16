@@ -6,13 +6,13 @@
  *        → ctx.on('session/event') 流式事件 → 按 step 聚合 → OneBot 发回 QQ。
  *
  * 依赖：
- *  - OneBot 客户端：../onebot-client.mjs（无外部依赖，Node≥22 内置 WebSocket）
+ *  - OneBot 客户端：./onebot-client.mjs（无外部依赖，Node≥22 内置 WebSocket）
  *  - 宿主服务：ctx.apiProxy（sessions.create/prompt + respond）
  *  - 事件：ctx.on('session/event')（api-proxy 的 mux 即此转发）
  */
 
 import { randomUUID } from 'node:crypto'
-import { OneBotClient, OneBotError } from '../onebot-client.mjs'
+import { OneBotClient, OneBotError } from './onebot-client.mjs'
 
 export const name = 'qq-bridge'
 export const inject = ['apiProxy']
@@ -34,7 +34,13 @@ export function qqSessionId(messageType, id) {
 }
 
 export function apply(ctx, rawConfig = {}) {
-  const config = { ...DEFAULTS, ...rawConfig }
+  // 配置优先级：环境变量（桌面壳透传）> 补丁配置 > 默认值
+  const config = {
+    ...DEFAULTS,
+    ...rawConfig,
+    onebotWs: process.env.DSH_QQ_ONEBOT_WS || rawConfig.onebotWs || DEFAULTS.onebotWs,
+    onebotToken: process.env.DSH_QQ_ONEBOT_TOKEN || rawConfig.onebotToken || DEFAULTS.onebotToken,
+  }
   const bot = new OneBotClient({
     url: config.onebotWs,
     token: config.onebotToken,
