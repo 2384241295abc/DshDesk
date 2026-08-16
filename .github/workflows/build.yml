@@ -1,0 +1,146 @@
+name: Build & Release Installer
+
+on:
+  workflow_dispatch:            # 手动触发（可在任意分支上验证）
+  push:
+    tags:
+      - 'v*'                    # 推送 v 开头标签时自动构建并发布
+
+permissions:
+  contents: write               # 允许上传 Release
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false          # 一个平台失败不阻塞其他平台
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm 10
+        run: |
+          npm install -g pnpm@10
+          pnpm --version
+
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Clone & build DeepSeek Harness
+        run: node build/build-harness.js
+
+      - name: Materialize node_modules links
+        run: node build/materialize3.js resources/harness
+
+      - name: Trim + web-frontend
+        run: node build/trim.js
+
+      - name: Install app dependencies (electron)
+        run: npm install
+
+      - name: Generate app icon
+        run: node build/convert-icon.js log.svg build/app.ico
+
+      - name: Download rcedit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Invoke-WebRequest -Uri "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe" -OutFile "build\rcedit-x64.exe"
+
+      - name: Download bundled Node runtime
+        run: node build/download-node.js v24.14.0
+
+      - name: Assemble desktop app
+        run: node build/assemble.js
+
+      # ---------- Windows: Inno Setup 安装包 ----------
+      - name: Compile installer (ISCC)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw "ISCC.exe not found" }
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v','' } else { 'dev' }
+          if (-not $ver) { $ver = "0.1.0" }
+          & $iscc "/DProjectDir=$((Get-Location).Path)" "/DMyAppVersion=$ver" setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC compile failed, exit $LASTEXITCODE" }
+
+      # ---------- macOS: .app + .dmg ----------
+      - name: Package DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          VER="$( [ "$GITHUB_REF_TYPE" = "tag" ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev )"
+          ARCH="$(node -p "process.arch")"
+          mkdir -p installers
+          hdiutil create -volname "DeepSeek Harness" \
+            -srcfolder "build/DeepSeekHarnessApp/DeepSeekHarness.app" \
+            -ov -format UDZO "installers/DeepSeekHarness-macOS-${ARCH}-${VER}.dmg"
+
+      # ---------- Linux: .tar.gz + .deb ----------
+      - name: Package tarball (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          VER="$( [ "$GITHUB_REF_TYPE" = "tag" ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev )"
+          ARCH="$(node -p "process.arch")"
+          mkdir -p installers
+          # assemble.js 在 Linux 将应用输出到 DeepSeekHarnessApp 根目录
+          tar -C build/DeepSeekHarnessApp -czf "installers/DeepSeekHarness-linux-${ARCH}-${VER}.tar.gz" .
+
+      - name: Package .deb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          # dpkg-deb 要求版本号以数字开头
+          VER="$( [ "$GITHUB_REF_TYPE" = "tag" ] && echo "${GITHUB_REF_NAME#v}" || echo 0.0.0-dev )"
+          ARCH="$(node -p "process.arch === 'arm64' ? 'arm64' : 'amd64'")"
+          APP=deepseek-harness
+          PKG="installers/pkg"
+          rm -rf "$PKG"
+          mkdir -p "$PKG/usr/lib/$APP" "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps" "$PKG/DEBIAN"
+          cp -a build/DeepSeekHarnessApp/. "$PKG/usr/lib/$APP/"
+          cp build/icon-256.png "$PKG/usr/share/icons/hicolor/256x256/apps/deepseek-harness.png"
+          cat > "$PKG/usr/share/applications/$APP.desktop" <<'EOF'
+          [Desktop Entry]
+          Name=DeepSeek Harness
+          Comment=DeepSeek Harness desktop launcher
+          Exec=/usr/lib/deepseek-harness/DeepSeekHarness
+          Icon=deepseek-harness
+          Terminal=false
+          Type=Application
+          Categories=Development;Utility;
+          StartupWMClass=DeepSeek Harness
+          EOF
+          cat > "$PKG/DEBIAN/control" <<EOF
+          Package: deepseek-harness
+          Version: $VER
+          Section: utils
+          Priority: optional
+          Architecture: $ARCH
+          Maintainer: DeepSeek AI
+          Description: DeepSeek Harness desktop launcher (Electron + bundled Node runtime)
+          Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libasound2 | libasound2t64
+          EOF
+          printf '#!/bin/sh\nset -e\nln -sf /usr/lib/deepseek-harness/DeepSeekHarness /usr/bin/deepseek-harness\n' > "$PKG/DEBIAN/postinst"
+          chmod +x "$PKG/DEBIAN/postinst"
+          dpkg-deb --build --root-owner-group "$PKG" "installers/${APP}_${VER}_${ARCH}.deb"
+          rm -rf "$PKG"
+
+      - name: Upload installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          generate_release_notes: true
