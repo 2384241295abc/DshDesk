@@ -65,10 +65,9 @@ jobs:
         run: node build/assemble.js
 
       # 释放源 harness/node 目录（产物内已含副本），缓解 14GB 磁盘上限
+      # 用 Node 跨平台删除（Windows PowerShell 的 rm -rf 不兼容）
       - name: Free source resources (post-assemble)
-        run: |
-          rm -rf resources/harness resources/node
-          echo "freed source resources"
+        run: node -e "const fs=require('fs');for(const d of ['resources/harness','resources/node']){fs.rmSync(d,{recursive:true,force:true});console.log('freed',d)}"
 
       # ---------- 冒烟测试：验证产物可运行（防上游漂移/pnpm 错配导致的"全绿但运行时坏"） ----------
       - name: Smoke test assembled app
