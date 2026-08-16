@@ -29,3 +29,5 @@ Desktop.ini
 **/.DS_Store
 build/*.icns
 lefthook.yml
+# 根目录误入的上游克隆（1.4GB，勿提交）
+/deepseek-harness/
