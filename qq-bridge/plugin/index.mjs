@@ -46,10 +46,17 @@ export function apply(ctx, rawConfig = {}) {
     token: config.onebotToken,
   })
 
-  /** sessionId -> 进行中回合的累积器 */
+  /** sessionId -> 缓冲队列（连续消息各自成条目，回合结束消费队头） */
   const buffers = new Map()
   /** qqKey -> sessionId（幂等建会话） */
   const sessionIds = new Map()
+
+  /** 取会话的活跃缓冲（队头未完成条目）；无则返回 undefined */
+  function activeBuffer(sessionId) {
+    const list = buffers.get(sessionId)
+    if (!list) return undefined
+    return list.find((b) => !b.done)
+  }
 
   // ---------- QQ → DSH ----------
 
@@ -82,8 +89,11 @@ export function apply(ctx, rawConfig = {}) {
           },
         })
         if (result.ok) {
-          buffers.set(sessionId, { sessionId, qqTarget: target, steps: [], chunks: [], lastFlush: Date.now(), done: false })
-          ctx.logger.info('[qq-bridge] queued "%s" -> %s', text.slice(0, 40), sessionId)
+          // 入队：连续消息各自一个缓冲条目，回复按序回传（不会被后到的消息覆盖）
+          const list = buffers.get(sessionId) || []
+          list.push({ sessionId, qqTarget: target, steps: [], chunks: [], lastFlush: Date.now(), done: false })
+          buffers.set(sessionId, list)
+          ctx.logger.info('[qq-bridge] queued "%s" -> %s (buffers=%d)', text.slice(0, 40), sessionId, list.length)
           return
         }
         lastErr = result.error
@@ -118,14 +128,14 @@ export function apply(ctx, rawConfig = {}) {
   async function onSessionEvent(sessionId, event) {
     switch (event.type) {
       case 'assistant/chunk': {
-        const buf = buffers.get(sessionId)
+        const buf = activeBuffer(sessionId)
         if (!buf || event.data.chunk.type !== 'text-delta') return
         buf.chunks.push(event.data.chunk.text)
         if (Date.now() - buf.lastFlush > config.forceFlushMs) await flush(buf, false)
         break
       }
       case 'assistant/message': {
-        const buf = buffers.get(sessionId)
+        const buf = activeBuffer(sessionId)
         if (!buf) return
         const text = (event.data.message?.content ?? [])
           .filter((b) => b.type === 'text').map((b) => b.text).join('').trim()
@@ -135,11 +145,12 @@ export function apply(ctx, rawConfig = {}) {
         break
       }
       case 'turn/end': {
-        const buf = buffers.get(sessionId)
+        const list = buffers.get(sessionId)
+        const buf = list && list.shift()   // 队头 = 当前回合
         if (!buf) return
         buf.done = true
         await flush(buf, true, event.data.reason?.kind)
-        buffers.delete(sessionId)
+        if (list.length === 0) buffers.delete(sessionId)
         break
       }
       case 'question/requested': await onQuestion(sessionId, event.data); break
@@ -165,7 +176,7 @@ export function apply(ctx, rawConfig = {}) {
 
   /** question/requested：必须应答否则回合挂起；按 autoAnswer 策略。 */
   async function onQuestion(sessionId, data) {
-    const buf = buffers.get(sessionId)
+    const buf = activeBuffer(sessionId)
     const target = buf?.qqTarget
     const allow = config.autoAnswer === 'allow-once'
     const question = data.question?.text ?? JSON.stringify(data).slice(0, 200)
@@ -194,7 +205,7 @@ export function apply(ctx, rawConfig = {}) {
 
   /** approval/requested：按 autoAnswer 策略自动应答。 */
   async function onApproval(sessionId, data) {
-    const buf = buffers.get(sessionId)
+    const buf = activeBuffer(sessionId)
     const target = buf?.qqTarget
     const allow = config.autoAnswer === 'allow-once'
     try {
