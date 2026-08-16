@@ -18,7 +18,9 @@ const args = process.argv.slice(2)
 const appDir = args.includes('--app') ? path.resolve(args[args.indexOf('--app') + 1]) : path.join(root, 'DeepSeekHarnessApp')
 const port = args.includes('--port') ? Number(args[args.indexOf('--port') + 1]) : 3081
 
-const resDir = path.join(appDir, 'resources')
+const resDir = process.platform === 'darwin'
+  ? path.join(appDir, 'DeepSeekHarness.app', 'Contents', 'Resources')   // macOS: 资源在 .app 内
+  : path.join(appDir, 'resources')                                       // win32/linux: 与应用同级
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const node = path.join(resDir, 'node', nodeName)
 const harness = path.join(resDir, 'harness')
@@ -35,21 +37,36 @@ if (!checkExists(node, '内置 Node')) process.exit(1)
 if (!checkExists(path.join(harness, 'apps', 'cli', 'src', 'bin.ts'), 'harness')) process.exit(1)
 
 console.log(`[smoke] 内置 Node: ${node}`)
-const native = spawnSync(node, ['-e',
-  "for (const m of ['node-pty','koffi']) { require(m); console.log('native OK:', m) }",
-], { cwd: harness, encoding: 'utf8' })
-if (native.status !== 0) {
-  fail(`原生模块缺失（pnpm 版本错配?）:\n${native.stderr || native.stdout}`)
-} else {
-  console.log(native.stdout.trim())
+// 原生模块检查：从真正依赖它们的包目录解析（hoisted 布局下根目录 resolve 不到）
+//   node-pty -> packages/subprocess/subprocess-local
+//   koffi    -> packages/fs/fs-local
+const nativeChecks = [
+  { pkg: 'packages/subprocess/subprocess-local', mod: 'node-pty', probe: 'spawn' },
+  { pkg: 'packages/fs/fs-local', mod: 'koffi', probe: 'address' },
+]
+for (const { pkg, mod, probe } of nativeChecks) {
+  const pkgDir = path.join(harness, pkg)
+  if (!fs.existsSync(pkgDir)) { fail(`原生模块检查包缺失: ${pkg}`); continue }
+  const r = spawnSync(node, ['-e',
+    `const m=require('${mod}'); if (typeof m.${probe} !== 'function' && typeof m.${probe} !== 'object') throw new Error('probe failed'); console.log('native OK: ${mod}')`,
+  ], { cwd: pkgDir, encoding: 'utf8' })
+  if (r.status !== 0) {
+    fail(`原生模块 ${mod} 缺失/加载失败（pnpm 构建脚本未跑?）:\n${r.stderr || r.stdout}`)
+  } else {
+    console.log(r.stdout.trim())
+  }
 }
 
 // ---- 3. 启动 dsh web 并探测 ----
 if (!failed) {
   console.log(`[smoke] 启动 dsh web (port ${port})…`)
+  // DSH_HOME 透传（本地受限环境可隔离到 /tmp；CI 默认真实 home）
+  const childEnv = { ...process.env }
+  if (process.env.DSH_HOME) childEnv.DSH_HOME = process.env.DSH_HOME
   const child = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', String(port)], {
     cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     detached: process.platform !== 'win32',
+    env: childEnv,
   })
   let out = ''
   child.stdout.on('data', (d) => { out += d })
