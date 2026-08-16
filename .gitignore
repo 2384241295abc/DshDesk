@@ -25,3 +25,5 @@ resources/harness/
 # 系统
 Thumbs.db
 Desktop.ini
+.DS_Store
+**/.DS_Store
