@@ -107,13 +107,30 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux.tar.gz Dee
 
 应用内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），通过第三方 QQ 框架（如 [NapCat](https://github.com/NapNeko/NapCatQQ)、Lagrange）提供远程交互渠道。
 
-1. 部署 NapCat/Lagrange（绑定一个 QQ 号），启用 **正向 WebSocket**，记下地址（如 `ws://127.0.0.1:6700`）与可选 access token
-2. 设置桥的 WS 地址：
-   - 环境变量（推荐，桌面壳透传）：`DSH_QQ_ONEBOT_WS=ws://127.0.0.1:6700`、`DSH_QQ_ONEBOT_TOKEN=...`
-   - 或 profile 补丁：`~/.dsh/profiles/web/cordis.patch.yml` 中覆盖 `qq-bridge` 行配置
-3. 向该 QQ 号发消息即触发 Harness 会话（私聊/群消息各自映射独立会话，回复流式回传）
+### 部署 NapCat（一次性准备，约 10 分钟）
 
-> MVP 范围：发任务 + 流式回复。模型发起的提问/审批在 QQ 端默认自动拒绝并提示（`autoAnswer: reject`），可改为 `allow-once` 自动放行。
+1. **准备一个 QQ 号**（建议小号），并在该 QQ 登录的设备上完成扫码/验证
+2. **安装 NapCat**：
+   - macOS：`brew install --cask napcat`，或到 [NapCat 仓库 Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载对应安装包；Windows：下载 exe 安装即可
+3. **启动并登录**：启动 NapCat → 用准备好的 QQ 号扫码登录
+4. **开启正向 WebSocket**：NapCat 设置 → 网络配置 → 新建 **WebSocket 服务器**（正向）→ 端口填 `6700`（默认即可）→ 可选设置 access token → 保存
+5. **记录地址**：`ws://127.0.0.1:6700`（若改了端口/token 按实际记录）
+
+### 连接桥
+
+1. 设置桥的 WS 地址（任选其一）：
+   - **环境变量（推荐）**：桌面壳透传 `DSH_QQ_ONEBOT_WS=ws://127.0.0.1:6700`、`DSH_QQ_ONEBOT_TOKEN=<token>`
+   - **profile 补丁**：编辑 `~/.dsh/profiles/web/cordis.patch.yml`，覆盖 `qq-bridge` 行的 `onebotWs`/`onebotToken`
+   - 不配置时使用默认值 `ws://127.0.0.1:6700`（与 NapCat 默认一致）
+2. 重启应用（或等待 profile 热重载）后，向该 QQ 号发消息即触发 Harness 会话：私聊与每个群各自映射独立会话，回复经 QQ 回传
+
+### 行为说明
+
+- 会话与 Web UI **完全共享**（同一 harness 实例），QQ 里发起/继续的会话在浏览器中可见、可续
+- 回复按步骤聚合后发送；回合结束（含错误）会附加状态说明
+- 模型发起的**提问/审批**在 QQ 端默认自动拒绝并提示（`autoAnswer: reject`），如需自动放行改为 `allow-once`（仅限可信场景）
+
+> MVP 范围：发任务 + 流式回复。更丰富的审批交互与命令面板为后续迭代项。
 
 ## 📄 许可
 
