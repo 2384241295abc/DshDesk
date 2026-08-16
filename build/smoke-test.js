@@ -161,12 +161,13 @@ async function qqE2E(baseEnv) {
   }, 60000, 'mock LLM 就绪')
   if (!llmReady) fail('mock LLM 未就绪')
 
-  // mock OneBot（用系统 node；ws 从产物内解析）
+  // mock OneBot（用系统 node；ws 从产物内解析）；双消息验证队列（连续消息回复不丢）
   const mockPath = path.join(proj, 'qq-bridge', 'test', 'mock-onebot.mjs')
   const wsProbe = [path.join(harness, 'node_modules', '.pnpm', 'node_modules', 'ws'),
     path.join(harness, 'node_modules', 'ws')].find((p) => fs.existsSync(p))
   if (!wsProbe) console.error('[smoke] QQ-E2E 警告: 未在产物中找到 ws，mock OneBot 可能无法启动')
-  const onebot = spawn(process.execPath, [mockPath, '--port', String(ONE_BOT), '--script', 'private:10001:QQ桥端到端测试'], {
+  const onebot = spawn(process.execPath, [mockPath, '--port', String(ONE_BOT),
+    '--script', 'private:10001:QQ桥端到端测试一|private:10001:QQ桥端到端测试二', '--gap', '4000'], {
     cwd: proj, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     env: { ...baseEnv, WS_PATH: wsProbe || '' },
   })
@@ -189,10 +190,11 @@ async function qqE2E(baseEnv) {
   h.stdout.on('data', (d) => { hOut += d })
   h.stderr.on('data', (d) => { hOut += d })
 
-  const gotReply = await waitFor(() => oneOut.includes('QQ 收到回复') && oneOut.includes('mock response recovered'), 180000, '等待 QQ 回复')
-  if (gotReply) console.log('[smoke] QQ-E2E OK: 私聊消息 → 回复回传')
+  // 断言：两条连续消息各收到一条回复（>=2，验证缓冲队列不丢回复）
+  const gotReply = await waitFor(() => (oneOut.match(/mock response recovered/g) || []).length >= 2, 180000, '等待 QQ 回复')
+  if (gotReply) console.log('[smoke] QQ-E2E OK: 两条连续消息 → 各自回复回传（队列无丢失）')
   else {
-    fail(`QQ 桥端到端未收到回复\n[llm] ${llmOut.slice(-600)}\n[onebot] ${oneOut.slice(-600)}\n[harness] ${hOut.slice(-600)}`)
+    fail(`QQ 桥端到端未收到两条回复\n[llm] ${llmOut.slice(-600)}\n[onebot] ${oneOut.slice(-600)}\n[harness] ${hOut.slice(-600)}`)
   }
   killAll()
 }
