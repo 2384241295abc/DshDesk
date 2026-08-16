@@ -236,13 +236,13 @@ function replicateAllVirtualSiblings() {
     if (path.basename(dir) === '.pnpm') return
     // 注意：不跳过根 node_modules/@deepseek-ai —— 预填充的 workspace 包副本
     // 的嵌套 node_modules 依赖同样需要补齐兄弟依赖（如 settings-file 的 chokidar→readdirp）
+    const parentIsNM = path.basename(dir) === 'node_modules'
+    const parentIsScope = !parentIsNM && path.basename(path.dirname(dir)) === 'node_modules'
     let entries
     try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       if (!e.isDirectory()) continue
       const p = path.join(dir, e.name)
-      const parentIsNM = path.basename(dir) === 'node_modules'
-      const parentIsScope = !parentIsNM && path.basename(path.dirname(dir)) === 'node_modules'
       if ((parentIsNM || parentIsScope) && fs.existsSync(path.join(p, 'package.json'))) {
         // p 是实体包副本（含 scoped 包）；用 name@version 精确找 .pnpm 源
         let name = parentIsNM ? e.name : `${path.basename(dir)}/${e.name}`
@@ -257,7 +257,9 @@ function replicateAllVirtualSiblings() {
         // 递归进入该包副本的 node_modules（嵌套依赖同样需要补齐兄弟依赖）
         const nestedNM = path.join(p, 'node_modules')
         if (fs.existsSync(nestedNM)) scan(nestedNM)
-      } else {
+      } else if (e.name === 'node_modules' || (parentIsNM && e.name.startsWith('@')) || fs.existsSync(path.join(p, 'node_modules'))) {
+        // 只沿 node_modules 链/scope 目录/含 node_modules 的目录遍历，
+        // 跳过包内 src/lib/dist 等（大幅减少 Windows 上的遍历开销）
         scan(p)
       }
     }
