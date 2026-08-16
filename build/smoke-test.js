@@ -17,6 +17,7 @@ const proj = path.dirname(root)
 const args = process.argv.slice(2)
 const appDir = args.includes('--app') ? path.resolve(args[args.indexOf('--app') + 1]) : path.join(root, 'DeepSeekHarnessApp')
 const port = args.includes('--port') ? Number(args[args.indexOf('--port') + 1]) : 3081
+const QQ_E2E = args.includes('--qq-e2e')   // 可选：端到端验证 QQ 桥（mock OneBot + mock LLM）
 
 const resDir = process.platform === 'darwin'
   ? path.join(appDir, 'DeepSeekHarness.app', 'Contents', 'Resources')   // macOS: 资源在 .app 内
@@ -91,6 +92,17 @@ if (!failed) {
     } else {
       fail(`dsh web 未在 ${(deadline - Date.now() + 90000) / 1000}s 内就绪（exit=${child.exitCode}）\n${out.slice(-2000)}`)
     }
+
+    // ---- 3.5 可选：QQ 桥端到端（mock OneBot + mock LLM，验证注入插件在产物中可用） ----
+    if (QQ_E2E && !failed) {
+      // 先停掉启动检查实例（避免其插件抢占 mock OneBot 连接）
+      try {
+        if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+        else { try { process.kill(-child.pid, 'SIGTERM') } catch {} }
+      } catch { /* ignore */ }
+      await qqE2E(childEnv)
+    }
+
     // ---- 4. 清理（进程组）----
     try {
       if (process.platform === 'win32') {
@@ -103,4 +115,87 @@ if (!failed) {
     setTimeout(() => { process.exit(failed ? 1 : 0) }, 4500)
   })()
 }
+
+// QQ 桥端到端：mock LLM + mock OneBot → 组装产物（内置 Node + 注入插件）→ 回复回传
+async function qqE2E(baseEnv) {
+  const LLM_PORT = 8010
+  const ONE_BOT = 6700
+  const E2E_HOME = path.join(require('node:os').tmpdir(), `dsh-e2e-${process.pid}`)
+  const procs = []
+  const killAll = () => {
+    for (const p of procs) {
+      try {
+        if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true })
+        else { try { process.kill(-p.pid, 'SIGTERM') } catch {} }
+      } catch { /* ignore */ }
+    }
+  }
+  const waitFor = async (fn, ms, label) => {
+    const end = Date.now() + ms
+    while (Date.now() < end) {
+      if (await fn()) return true
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+    console.error(`[smoke] QQ-E2E 超时: ${label}`)
+    return false
+  }
+
+  console.log('[smoke] QQ-E2E: 启动 mock LLM + mock OneBot …')
+  // mock LLM（用内置 Node + 产物内 llm-mock-server）
+  const llm = spawn(node, ['--import', 'tsx/esm', 'packages/test-support/llm-mock-server/src/bin.ts',
+    '--port', String(LLM_PORT), '--api-key', 'mock-key', '--sequence', 'success', '--repeat-last'], {
+    cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32',
+  })
+  procs.push(llm)
+  let llmOut = ''
+  llm.stdout.on('data', (d) => { llmOut += d })
+  llm.stderr.on('data', (d) => { llmOut += d })
+  const llmReady = await waitFor(async () => {
+    try {
+      const r = await fetch(`http://127.0.0.1:${LLM_PORT}/v1/chat/completions`, { method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer mock-key' },
+        body: JSON.stringify({ model: 'x', messages: [{ role: 'user', content: 'ping' }] }) })
+      return r.ok
+    } catch { return false }
+  }, 60000, 'mock LLM 就绪')
+  if (!llmReady) fail('mock LLM 未就绪')
+
+  // mock OneBot（用系统 node；ws 从产物内解析）
+  const mockPath = path.join(proj, 'qq-bridge', 'test', 'mock-onebot.mjs')
+  const wsProbe = [path.join(harness, 'node_modules', '.pnpm', 'node_modules', 'ws'),
+    path.join(harness, 'node_modules', 'ws')].find((p) => fs.existsSync(p))
+  if (!wsProbe) console.error('[smoke] QQ-E2E 警告: 未在产物中找到 ws，mock OneBot 可能无法启动')
+  const onebot = spawn(process.execPath, [mockPath, '--port', String(ONE_BOT), '--script', 'private:10001:QQ桥端到端测试'], {
+    cwd: proj, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    env: { ...baseEnv, WS_PATH: wsProbe || '' },
+  })
+  procs.push(onebot)
+  let oneOut = ''
+  onebot.stdout.on('data', (d) => { oneOut += d })
+  onebot.stderr.on('data', (d) => { oneOut += d })
+
+  // 组装产物 harness（独立 DSH_HOME + 指向 mock LLM；插件经 DSH_QQ_ONEBOT_WS 指向 mock OneBot）
+  const env = { ...baseEnv, DSH_HOME: E2E_HOME,
+    DEEPSEEK_BASE_URL: `http://127.0.0.1:${LLM_PORT}/v1`, DEEPSEEK_API_KEY: 'mock-key',
+    DSH_QQ_ONEBOT_WS: `ws://127.0.0.1:${ONE_BOT}` }
+  const e2ePort = 3082
+  const h = spawn(node, ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', String(e2ePort)], {
+    cwd: harness, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32', env,
+  })
+  procs.push(h)
+  let hOut = ''
+  h.stdout.on('data', (d) => { hOut += d })
+  h.stderr.on('data', (d) => { hOut += d })
+
+  const gotReply = await waitFor(() => oneOut.includes('QQ 收到回复') && oneOut.includes('mock response recovered'), 180000, '等待 QQ 回复')
+  if (gotReply) console.log('[smoke] QQ-E2E OK: 私聊消息 → 回复回传')
+  else {
+    fail(`QQ 桥端到端未收到回复\n[llm] ${llmOut.slice(-600)}\n[onebot] ${oneOut.slice(-600)}\n[harness] ${hOut.slice(-600)}`)
+  }
+  killAll()
+}
+
+// 原生模块/环境检查失败时直接退出（不进入启动阶段）
 if (failed) process.exit(1)

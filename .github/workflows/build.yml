@@ -68,6 +68,10 @@ jobs:
       - name: Smoke test assembled app
         run: node build/smoke-test.js --app build/DeepSeekHarnessApp --port 3081
 
+      # ---------- QQ 桥端到端：mock OneBot + mock LLM，验证注入插件在产物中可用 ----------
+      - name: QQ bridge E2E smoke
+        run: node build/smoke-test.js --app build/DeepSeekHarnessApp --port 3081 --qq-e2e
+
       # ---------- Windows: Inno Setup 安装包 ----------
       - name: Compile installer (ISCC)
         if: runner.os == 'Windows'

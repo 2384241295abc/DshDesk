@@ -7,27 +7,30 @@
  *  - 打印收到的全部 action（send_private_msg 等），并回 echo 响应
  *
  * 运行：node mock-onebot.mjs --port 6710 [--token xxx] [--message "文本"]
- * ws 库来源：优先 $WS_PATH，其次 pnpm store 绝对路径，最后 node_modules/ws。
+ * ws 库来源：优先 $WS_PATH（CI/跨机由调用方传入），其次相对本文件探测项目内位置。
  */
 'use strict'
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
 
 function resolveWs() {
   if (process.env.WS_PATH) return process.env.WS_PATH
+  // 相对本文件（qq-bridge/test/）探测项目内 ws：desktop 根 node_modules / resources/harness
+  const here = fileURLToPath(new URL('.', import.meta.url))
+  const proj = require('node:path').resolve(here, '..', '..')
   const candidates = [
-    '/Users/fuyunhuancheng/Downloads/DeepSeekHarnessDesktop-main/deepseek-harness/node_modules/.pnpm/ws@8.21.0/node_modules/ws',
-    '/Users/fuyunhuancheng/Downloads/DeepSeekHarnessDesktop-main/deepseek-harness/packages/host/webserver/node_modules/ws',
-    '/Users/fuyunhuancheng/Downloads/DeepSeekHarnessDesktop-main/deepseek-harness/node_modules/ws',
+    require('node:path').join(proj, 'node_modules', 'ws'),
+    require('node:path').join(proj, 'resources', 'harness', 'node_modules', '.pnpm', 'node_modules', 'ws'),
+    require('node:path').join(proj, 'resources', 'harness', 'node_modules', 'ws'),
   ]
   for (const c of candidates) {
     try { require.resolve(c); return c } catch { /* next */ }
   }
-  throw new Error('找不到 ws 库，请设置 WS_PATH')
+  throw new Error('找不到 ws 库，请设置 WS_PATH 指向 ws 包目录')
 }
-import { createRequire } from 'node:module'
-const require = createRequire(import.meta.url)
 
 const args = process.argv.slice(2)
 function arg(name, def) {
