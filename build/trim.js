@@ -92,3 +92,19 @@ for (const d of ['test-support', 'examples']) {
   if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); removedDirs++ }
 }
 if (removedDirs > 0) console.log(`trimmed non-runtime dirs: ${removedDirs}`)
+
+// 6. 删除运行期不需要的类型声明与 sourcemap（*.d.ts / *.map 等）：
+//    既缓解 Windows 打包的长路径压力，也减小产物体积
+let prunedFiles = 0
+;(function pruneTypes(dir) {
+  let entries
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) pruneTypes(p)
+    else if (/\.(d\.ts|d\.mts|d\.cts|tsbuildinfo)$/.test(e.name) || (e.name.endsWith('.map') && !e.name.endsWith('.wasm.map'))) {
+      try { fs.rmSync(p, { force: true }); prunedFiles++ } catch {}
+    }
+  }
+})(h)
+if (prunedFiles > 0) console.log(`pruned type/map files: ${prunedFiles}`)

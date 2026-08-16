@@ -38,6 +38,13 @@ jobs:
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
+      # Windows 长路径支持（依赖树嵌套深，打包路径可能超 260 字符）
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: |
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+          git config --system core.longpaths true
+
       - name: Clone & build DeepSeek Harness
         run: node build/build-harness.js
 
