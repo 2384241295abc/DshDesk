@@ -64,6 +64,12 @@ jobs:
       - name: Assemble desktop app
         run: node build/assemble.js
 
+      # 释放源 harness/node 目录（产物内已含副本），缓解 14GB 磁盘上限
+      - name: Free source resources (post-assemble)
+        run: |
+          rm -rf resources/harness resources/node
+          echo "freed source resources"
+
       # ---------- 冒烟测试：验证产物可运行（防上游漂移/pnpm 错配导致的"全绿但运行时坏"） ----------
       - name: Smoke test assembled app
         run: node build/smoke-test.js --app build/DeepSeekHarnessApp --port 3081
@@ -118,7 +124,8 @@ jobs:
           PKG="installers/pkg"
           rm -rf "$PKG"
           mkdir -p "$PKG/usr/lib/$APP" "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/256x256/apps" "$PKG/DEBIAN"
-          cp -a build/DeepSeekHarnessApp/. "$PKG/usr/lib/$APP/"
+          # 硬链接 staging（cp -al）：零额外磁盘，避免 14GB 上限下 ENOSPC
+          cp -al build/DeepSeekHarnessApp/. "$PKG/usr/lib/$APP/"
           cp build/icon-256.png "$PKG/usr/share/icons/hicolor/256x256/apps/deepseek-harness.png"
           cat > "$PKG/usr/share/applications/$APP.desktop" <<'EOF'
           [Desktop Entry]
