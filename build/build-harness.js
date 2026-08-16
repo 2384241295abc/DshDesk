@@ -18,6 +18,9 @@ const h = path.join(proj, 'resources', 'harness')
 const HARNESS_REPO = process.env.HARNESS_REPO || 'https://github.com/deepseek-ai/deepseek-harness.git'
 // 锁定 dsh 0.1.0-rc.5（deepseek-harness master 2026-08 的稳定发布点）
 const HARNESS_COMMIT = process.env.HARNESS_COMMIT || '47f943859bef60e4160492346772ded9b24f765a'
+// 本地源覆盖：github 不可达时（如离线/受限网络），可指向本机已有 checkout
+// （如 HARNESS_SOURCE=/path/to/deepseek-harness），从本地仓库克隆到锁定版本
+const LOCAL_SOURCE = process.env.HARNESS_SOURCE || ''
 // 存在则复用本地目录（HARNESS_FORCE=1 强制重拉）
 const FORCE = process.env.HARNESS_FORCE === '1'
 
@@ -35,12 +38,30 @@ function run(cmd, args, cwd, { allowFail = false } = {}) {
 if (FORCE && fs.existsSync(h)) fs.rmSync(h, { recursive: true, force: true })
 
 if (!fs.existsSync(path.join(h, 'package.json'))) {
-  run('git', ['init', h], proj)
-  run('git', ['-C', h, 'remote', 'add', 'origin', HARNESS_REPO], proj)
-  // GitHub 支持按任意 SHA 浅拉取；FETCH_HEAD 即锁定版本
-  run('git', ['-C', h, 'fetch', '--depth', '1', 'origin', HARNESS_COMMIT], proj)
-  run('git', ['-C', h, 'checkout', 'FETCH_HEAD'], proj)
-  console.log(`harness fetched at ${HARNESS_COMMIT}`)
+  if (LOCAL_SOURCE) {
+    // 本地源：直接拷贝工作树（排除 .git/node_modules，随后 pnpm install/build 重建依赖）。
+    // 要求本地源已检出目标版本（可用 HARNESS_COMMIT 校验提示）。
+    console.log(`[build-harness] 使用本地源: ${LOCAL_SOURCE}`)
+    if (!fs.existsSync(path.join(LOCAL_SOURCE, 'package.json'))) {
+      console.error(`[build-harness] 本地源缺少 package.json: ${LOCAL_SOURCE}`)
+      process.exit(1)
+    }
+    fs.cpSync(LOCAL_SOURCE, h, {
+      recursive: true,
+      filter: (src) => {
+        const base = path.basename(src)
+        return base !== '.git' && base !== 'node_modules'
+      },
+    })
+    console.log(`harness copied from local source (lock: ${HARNESS_COMMIT})`)
+  } else {
+    run('git', ['init', h], proj)
+    run('git', ['-C', h, 'remote', 'add', 'origin', HARNESS_REPO], proj)
+    // GitHub 支持按任意 SHA 浅拉取；FETCH_HEAD 即锁定版本
+    run('git', ['-C', h, 'fetch', '--depth', '1', 'origin', HARNESS_COMMIT], proj)
+    run('git', ['-C', h, 'checkout', 'FETCH_HEAD'], proj)
+    console.log(`harness fetched at ${HARNESS_COMMIT}`)
+  }
 } else {
   console.log('[build-harness] 复用现有 resources/harness（如需重拉设置 HARNESS_FORCE=1）')
 }
