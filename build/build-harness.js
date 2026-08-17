@@ -67,7 +67,11 @@ if (!fs.existsSync(path.join(h, 'package.json'))) {
 }
 
 // ---------- 2. 注入 dsh-qq-bridge 插件（workspace 包） ----------
-const pluginSrc = path.join(proj, 'qq-bridge', 'plugin')
+// 插件已独立到 WanShengling 仓库（~/Documents/DshDesktop/dsh-qq-bridge/plugin）；
+// 优先用独立仓库，缺失时回退原项目副本（兼容旧环境）。
+const pluginSrc = fs.existsSync(path.join(path.dirname(proj), 'dsh-qq-bridge', 'plugin'))
+  ? path.join(path.dirname(proj), 'dsh-qq-bridge', 'plugin')
+  : path.join(proj, 'qq-bridge', 'plugin')
 const pluginDest = path.join(h, 'packages', 'qq', 'dsh-qq-bridge')
 if (fs.existsSync(pluginSrc)) {
   fs.rmSync(pluginDest, { recursive: true, force: true })
