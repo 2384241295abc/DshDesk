@@ -110,9 +110,10 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux.tar.gz Dee
 ### 部署 NapCat（一次性准备，约 10 分钟）
 
 1. **准备一个 QQ 号**（建议小号），并在该 QQ 登录的设备上完成扫码/验证
-2. **安装 NapCat**：
-   - macOS：`brew install --cask napcat`，或到 [NapCat 仓库 Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载对应安装包；Windows：下载 exe 安装即可
-3. **启动并登录**：启动 NapCat → 用准备好的 QQ 号扫码登录
+2. **安装 NapCat**（Shell 包，跨平台，macOS/Windows/Linux 通用）：
+   - 到 [NapCat 仓库 Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载 `NapCat.Shell.zip`（注意：**无 `brew cask`**，`brew install --cask napcat` 不存在，此前的指引有误）
+   - 解压后进入目录，用系统 Node.js（≥22）运行 `node napcat.mjs`（无需安装/注入任何东西）
+3. **启动并登录**：`node napcat.mjs` → 终端出现二维码 → 用准备好的 QQ 号扫码登录
 4. **开启正向 WebSocket**：NapCat 设置 → 网络配置 → 新建 **WebSocket 服务器**（正向）→ 端口填 `6700`（默认即可）→ 可选设置 access token → 保存
 5. **记录地址**：`ws://127.0.0.1:6700`（若改了端口/token 按实际记录）
 
