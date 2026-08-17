@@ -114,10 +114,13 @@ export function apply(ctx, rawConfig = {}) {
     const gcfg = groups.get(qqKey)
     const isGroup = msg.message_type === 'group'
 
-    // 群聊：观察成员发言 + 友好度窗口记录 + @加友好度 + 讨论触发检查
+    // 群聊：观察成员发言 + 友好度窗口记录 + @加友好度 + 讨论触发检查 + 结算检查
     if (isGroup) {
       members.observe(qqKey, String(msg.user_id ?? '?'), text)
       friends.recordMessage(qqKey, String(msg.user_id ?? '?'))
+      // 结算检查：万生玲发言后满 5 句 → 结算友好度窗口
+      const settled = friends.checkSettle(qqKey)
+      if (settled.length) log('info', '[qq-bridge] 友好度结算 %s', JSON.stringify(settled))
       // 惰性同步成员列表（昵称/群名片），每个群首次触发一次
       if (!syncedGroups.has(qqKey)) {
         syncedGroups.add(qqKey)
@@ -209,10 +212,9 @@ export function apply(ctx, rawConfig = {}) {
               log('info', '[qq-bridge] 群 %s 已回复，能量重置为 %d', qqKey, e)
             }
           }
-          // 万生玲发言：结算友好度窗口（前后各5条内成员 +1）
+          // 万生玲发言：标记友好度结算点（等后5句到齐后结算）
           if (isGroup) {
-            const gained = friends.feedWindow(qqKey, selfId)
-            if (gained.length) log('info', '[qq-bridge] 友好度结算 %s', JSON.stringify(gained))
+            friends.markReply(qqKey, selfId)
           }
           return
         }

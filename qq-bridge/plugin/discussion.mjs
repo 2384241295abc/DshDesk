@@ -54,12 +54,13 @@ export function createDiscussionManager({ energy, log = () => {} } = {}) {
     return true
   }
 
-  /** 消息后检查：能量 < -1540 → 退出讨论 */
+  /** 消息后检查：能量 < -1540 → 退出讨论并重置能量为常态随机值 */
   function checkExit(qqKey) {
     if (!active.has(qqKey)) return false
     const e = energy.getEnergy(qqKey)
     if (e !== undefined && e < EXIT_ENERGY) {
       exit(qqKey)
+      energy.reset(qqKey)   // 退出讨论，恢复常态能量
       return true
     }
     return false

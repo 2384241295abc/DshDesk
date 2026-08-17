@@ -49,6 +49,8 @@ export function createFriendsManager({ log = () => {} } = {}) {
   const windows = new Map()
   /** qqKey -> Set<userId> 该群全部成员（供 groupTotalAll 精确计算） */
   const groupMemberSets = new Map()
+  /** qqKey -> 待结算的发言结算点（万生玲发言后等后5句） */
+  const pendingSettles = new Map()
 
   /** 取用户友好度（不存在则初始 0） */
   function get(userId) {
@@ -62,34 +64,50 @@ export function createFriendsManager({ log = () => {} } = {}) {
     return LEVELS[LEVELS.length - 1]
   }
 
-  /** 记录一条群消息到窗口（滚动保留 WINDOW*2 条） */
+  /** 记录一条群消息到滚动窗口（保留足够长的历史供前后5句结算） */
   function recordMessage(qqKey, userId) {
     let w = windows.get(qqKey)
     if (!w) { w = []; windows.set(qqKey, w) }
     w.push({ userId: String(userId), at: Date.now() })
-    // 保留窗口大小（前后各 WINDOW，最多 WINDOW*2 条）
-    if (w.length > WINDOW * 2) w.splice(0, w.length - WINDOW * 2)
+    // 保留最近消息（前5 + 后5 + 余量，最多 20 条）
+    if (w.length > 20) w.splice(0, w.length - 20)
   }
 
   /**
-   * 万生玲发言时调用：结算窗口 —— 窗口内所有发言者 +1（同人多条多次 +1）
-   * @returns 本次增加的用户友好度明细 [{userId, gain}]
+   * 万生玲发言时调用：标记结算点（记录当前窗口）。
+   * 之后每来一条消息，若距结算点已满 WINDOW 条（后5句到齐），则结算。
    */
-  function feedWindow(qqKey, selfId) {
+  function markReply(qqKey, selfId) {
     const w = windows.get(qqKey)
-    if (!w || !w.length) return []
+    if (!w) return
+    // 覆盖旧结算点（若上一次还没结算就再次发言，以最新为准）
+    pendingSettles.set(qqKey, { baseLength: w.length, selfId })
+  }
+
+  /**
+   * 结算检查：每条新消息后调用。若距结算点已满 WINDOW 条（后5句到齐），
+   * 结算窗口（前5句+后5句共 ≤10 条的发言者 +1），并清除结算点。
+   * @returns 本次结算明细 [{userId, gain}]；未到齐返回 []
+   */
+  function checkSettle(qqKey) {
+    const pending = pendingSettles.get(qqKey)
+    if (!pending || pending.done) return []
+    const w = windows.get(qqKey)
+    if (!w) return []
+    // 万生玲发言后至今的消息数（后5句进度）
+    const after = w.length - pending.baseLength
+    if (after < WINDOW) return []  // 后5句未到齐
     const gained = []
     const seen = new Map()
     for (const m of w) {
-      if (String(m.userId) === String(selfId)) continue  // 自己不算
+      if (String(m.userId) === String(pending.selfId)) continue
       seen.set(m.userId, (seen.get(m.userId) || 0) + PER_MSG_GAIN)
     }
     for (const [userId, gain] of seen) {
       add(userId, gain)
       gained.push({ userId, gain })
     }
-    // 结算后清空窗口（一次发言结算一次）
-    windows.delete(qqKey)
+    pendingSettles.delete(qqKey)  // 结算完成
     return gained
   }
 
@@ -163,5 +181,5 @@ export function createFriendsManager({ log = () => {} } = {}) {
     return out
   }
 
-  return { get, level, levelLabel, recordMessage, feedWindow, boost, add, friendEnergyBonus, groupTotal, groupTotalAll, setGroupMembers, buildContext, stats }
+  return { get, level, levelLabel, recordMessage, markReply, checkSettle, boost, add, friendEnergyBonus, groupTotal, groupTotalAll, setGroupMembers, buildContext, stats }
 }
