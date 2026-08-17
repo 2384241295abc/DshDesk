@@ -149,7 +149,7 @@ export function apply(ctx, rawConfig = {}) {
 
     // 群聊能量机制：先记录+扣能量，未达阈值则不回复（像真人不是每条都回）
     if (isGroup && gcfg.energy?.enabled) {
-      // 讨论模式退出检查（能量 < -1540）
+      // 讨论模式退出检查（能量 < -24）
       discussion.checkExit(qqKey)
       // 被 @ 时强制触发（点名就得回），否则正常 feed
       if (isAt) {
@@ -214,9 +214,9 @@ export function apply(ctx, rawConfig = {}) {
           // 群聊：回复已入队，重置能量（开始下一轮衰减）
           if (isGroup && gcfg.energy?.enabled) {
             if (discussion.isActive(qqKey)) {
-              // 讨论模式：每次回复后能量重置 30
+              // 讨论模式：每次回复后能量重置 30~60
               discussion.onReply(qqKey)
-              log('info', '[qq-bridge] 群 %s 讨论中回复，能量重置为 30', qqKey)
+              log('info', '[qq-bridge] 群 %s 讨论中回复，能量已重置', qqKey)
             } else {
               const e = energy.reset(qqKey)
               log('info', '[qq-bridge] 群 %s 已回复，能量重置为 %d', qqKey, e)

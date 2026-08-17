@@ -27,7 +27,7 @@
 /** 默认参数（与 config.mjs 的 DEFAULTS.energy 一致，可被覆盖） */
 const DEFAULT_ENERGY = {
   enabled: true,
-  range: [100, 500],
+  range: [100, 1000],
   decayPerMin: 3,            // 每分钟能量衰减（原每秒3，改为每分钟3 = 慢60倍）
   msgCost: 10,
   contextWindow: 8,
@@ -49,8 +49,12 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
   }
 
   function reset(qqKey) {
-    const st = states.get(qqKey)
-    if (!st) return
+    let st = states.get(qqKey)
+    if (!st) {
+      // 防御：未初始化时自动建状态（正常流程 feed/force 会先建，此处兜底）
+      st = { energy: opts.range[0], lastTick: Date.now(), history: [] }
+      states.set(qqKey, st)
+    }
     const [lo, hi] = opts.range
     st.energy = lo + Math.floor(Math.random() * (hi - lo + 1))
     st.lastTick = Date.now()

@@ -30,7 +30,7 @@ export function defaultGroupConfig(global = {}) {
     // 群聊能量阈值机制（仅群聊生效；私聊不走此逻辑）
     energy: {
       enabled: global.energy?.enabled ?? true,
-      range: global.energy?.range ?? [100, 500],
+      range: global.energy?.range ?? [100, 1000],
       decayPerMin: global.energy?.decayPerMin ?? 3,
       msgCost: global.energy?.msgCost ?? 10,
       contextWindow: global.energy?.contextWindow ?? 8,
