@@ -31,7 +31,7 @@ export function defaultGroupConfig(global = {}) {
     energy: {
       enabled: global.energy?.enabled ?? true,
       range: global.energy?.range ?? [100, 500],
-      decayPerSec: global.energy?.decayPerSec ?? 3,
+      decayPerMin: global.energy?.decayPerMin ?? 3,
       msgCost: global.energy?.msgCost ?? 10,
       contextWindow: global.energy?.contextWindow ?? 8,
     },

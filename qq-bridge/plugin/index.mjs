@@ -98,6 +98,8 @@ export function apply(ctx, rawConfig = {}) {
   let selfId = config.selfId || ''
   /** 已同步过成员列表的群（惰性，每群一次） */
   const syncedGroups = new Set()
+  /** qqKey -> 群成员数（同步成员列表时记录，供讨论触发判定） */
+  const memberCounts = new Map()
 
   async function onQqMessage(msg) {
     const text = OneBotClient.extractText(msg.message)
@@ -118,6 +120,7 @@ export function apply(ctx, rawConfig = {}) {
     if (isGroup) {
       members.observe(qqKey, String(msg.user_id ?? '?'), text)
       friends.recordMessage(qqKey, String(msg.user_id ?? '?'))
+      discussion.recordActivity(qqKey, String(msg.user_id ?? '?'))
       // 结算检查：万生玲发言后满 5 句 → 结算友好度窗口
       const settled = friends.checkSettle(qqKey)
       if (settled.length) log('info', '[qq-bridge] 友好度结算 %s', JSON.stringify(settled))
@@ -127,11 +130,15 @@ export function apply(ctx, rawConfig = {}) {
         void bot.request('get_group_member_list', { group_id: msg.group_id }).then((data) => {
           if (Array.isArray(data)) {
             members.syncGroup(qqKey, data)
+            memberCounts.set(qqKey, data.length)
             friends.setGroupMembers(qqKey, data.map((m) => m.user_id))
-            // 讨论触发：群成员友好度总和 > 成员数 × 80
-            discussion.checkEnter(qqKey, friends.groupTotalAll(qqKey), data.length)
+            // 讨论触发：友好度总和 > 成员数×80，或 2 分钟内发言人数 > 5
+            discussion.checkEnter(qqKey, friends.groupTotalAll(qqKey), data.length, discussion.recentSpeakers(qqKey))
           }
         }).catch(() => {})
+      } else {
+        // 已同步过：每次消息也检查活跃触发（2分钟内>5人）
+        discussion.checkEnter(qqKey, friends.groupTotalAll(qqKey), memberCounts.get(qqKey) || 0, discussion.recentSpeakers(qqKey))
       }
       // @ 万生玲的用户友好度 +5
       if (isAt) {
@@ -176,6 +183,9 @@ export function apply(ctx, rawConfig = {}) {
         // 友好度认知：告诉万生玲与当前发言者的熟悉度
         const fctx = friends.buildContext(qqKey, selfId, String(msg.user_id ?? ''))
         if (fctx) content.push({ type: 'text', text: fctx })
+        // 讨论环境提示：让万生玲发言更符合"多人讨论"氛围
+        const dctx = discussion.getContext(qqKey)
+        if (dctx) content.push({ type: 'text', text: dctx })
       }
       if (isGroup && gcfg.energy?.enabled) {
         const gctx = energy.getContext(qqKey)

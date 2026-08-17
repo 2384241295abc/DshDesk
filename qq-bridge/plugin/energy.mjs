@@ -28,7 +28,7 @@
 const DEFAULT_ENERGY = {
   enabled: true,
   range: [100, 500],
-  decayPerSec: 3,
+  decayPerMin: 3,            // 每分钟能量衰减（原每秒3，改为每分钟3 = 慢60倍）
   msgCost: 10,
   contextWindow: 8,
 }
@@ -38,12 +38,12 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
   /** qqKey -> { energy, lastTick, history: [{user, text, at}] } */
   const states = new Map()
 
-  /** 惰性衰减：按距上次更新的秒数补算衰减 */
+  /** 惰性衰减：按距上次更新的分钟数补算衰减 */
   function applyDecay(st, now = Date.now()) {
     if (st.lastTick === undefined) { st.lastTick = now; return }
-    const elapsedSec = (now - st.lastTick) / 1000
-    if (elapsedSec > 0) {
-      st.energy -= opts.decayPerSec * elapsedSec
+    const elapsedMin = (now - st.lastTick) / 60000
+    if (elapsedMin > 0) {
+      st.energy -= (opts.decayPerMin ?? opts.decayPerSec ?? 3) * elapsedMin
       st.lastTick = now
     }
   }

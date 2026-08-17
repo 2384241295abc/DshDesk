@@ -33,7 +33,7 @@ export const DEFAULTS = {
   energy: {
     enabled: true,             // 群聊是否启用能量阈值
     range: [100, 500],         // 每次回复后重置的随机能量区间
-    decayPerSec: 3,            // 每秒衰减
+    decayPerMin: 3,           // 每分钟衰减
     msgCost: 10,               // 群内每条消息衰减
     contextWindow: 8,          // 触发时携带的最近消息条数
   },
