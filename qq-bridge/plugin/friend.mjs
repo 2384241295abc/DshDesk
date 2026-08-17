@@ -40,7 +40,7 @@ export const PER_MSG_GAIN = 1
 /** @ 万生玲的友好度增量 */
 export const AT_GAIN = 5
 /** 挚友每句能量减免 */
-export const BEST_FRIEND_ENERGY_BONUS = 7
+export const BEST_FRIEND_ENERGY_COST = 17   // 挚友每次说话扣除的能量（比普通 10 更积极）
 
 export function createFriendsManager({ log = () => {} } = {}) {
   /** userId -> { value, firstSeen, lastSeen }（跨群共享） */
@@ -127,9 +127,9 @@ export function createFriendsManager({ log = () => {} } = {}) {
     return add(userId, AT_GAIN)
   }
 
-  /** 挚友能量减免：挚友返回 7，否则 0 */
-  function friendEnergyBonus(userId) {
-    return level(userId).level === 'best' ? BEST_FRIEND_ENERGY_BONUS : 0
+  /** 挚友说话能量成本：挚友返回 17，否则 0（非挚友走默认 msgCost） */
+  function friendEnergyCost(userId) {
+    return level(userId).level === 'best' ? BEST_FRIEND_ENERGY_COST : 0
   }
 
   /**
@@ -181,5 +181,5 @@ export function createFriendsManager({ log = () => {} } = {}) {
     return out
   }
 
-  return { get, level, levelLabel, recordMessage, markReply, checkSettle, boost, add, friendEnergyBonus, groupTotal, groupTotalAll, setGroupMembers, buildContext, stats }
+  return { get, level, levelLabel, recordMessage, markReply, checkSettle, boost, add, friendEnergyCost, groupTotal, groupTotalAll, setGroupMembers, buildContext, stats }
 }

@@ -148,9 +148,9 @@ export function apply(ctx, rawConfig = {}) {
       if (isAt) {
         energy.force(qqKey)
       } else {
-        // 挚友能量减免：挚友每句话减 7 能量（即 msgCost 减少）
-        const bonus = friends.friendEnergyBonus(String(msg.user_id ?? '?'))
-        const cost = Math.max(0, (gcfg.energy.msgCost ?? 10) - bonus)
+        // 挚友说话成本：挚友扣 17 能量（比普通 10 更积极），否则默认 msgCost
+        const friendCost = friends.friendEnergyCost(String(msg.user_id ?? '?'))
+        const cost = friendCost || (gcfg.energy.msgCost ?? 10)
         const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text, cost)
         if (!triggered) return
       }
