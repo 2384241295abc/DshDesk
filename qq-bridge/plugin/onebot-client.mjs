@@ -101,8 +101,9 @@ export class OneBotClient extends EventEmitter {
   _startHeartbeat() {
     this._stopHeartbeat()
     this._hbTimer = setInterval(() => {
-      // get_meta 同时充当心跳与延迟探测（失败走 onclose 重连）
-      this.request('get_meta', {}).catch(() => {})
+      // get_login_info 同时充当心跳与延迟探测（失败走 onclose 重连）。
+      // 注：NapCat 不支持 get_meta（1404），改用其支持的 get_login_info。
+      this.request('get_login_info', {}).catch(() => {})
     }, this.heartbeatMs)
   }
   _stopHeartbeat() {

@@ -235,7 +235,10 @@ export function apply(ctx, rawConfig = {}) {
       ctx.logger.warn('[qq-bridge] event: %s', err.message))
   })
 
-  ctx.on('dispose', () => { bot.close() })
-
   ctx.logger.info('[qq-bridge] 已启动，OneBot WS: %s', config.onebotWs)
+
+  // ⚠️ 清理必须通过 apply 的返回值（disposer）注册：Cordis 从不 emit 'dispose'
+  // 事件，ctx.on('dispose') 永远不会触发，导致重载时旧实例泄漏（连接累积、
+  // 重复处理消息）。返回清理函数由 fiber 卸载时统一调用。
+  return () => { bot.close() }
 }
