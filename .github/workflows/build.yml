@@ -93,6 +93,7 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe not found" }
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v','' } else { 'dev' }
           if (-not $ver) { $ver = "0.1.0" }
+          New-Item -ItemType Directory -Force -Path installers | Out-Null
           & $iscc "/DProjectDir=$((Get-Location).Path)" "/DMyAppVersion=$ver" setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC compile failed, exit $LASTEXITCODE" }
 
