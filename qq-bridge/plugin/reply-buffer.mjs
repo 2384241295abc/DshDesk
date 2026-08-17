@@ -72,7 +72,11 @@ export function createReplyBuffer({ sendText, maxChunkLength = 3500, forceFlushM
       case 'turn/end': {
         const list = buffers.get(sessionId)
         const buf = list && list.shift()   // 队头 = 当前回合
-        if (!buf) return
+        if (!buf) {
+          // ⚠️ 防御：turn/end 到达但队列为空（事件先于 enqueue 或双实例错配）
+          log('warn', '[qq-bridge] turn/end 无匹配缓冲 (session=%s)，可能丢回复', sessionId)
+          return
+        }
         buf.done = true
         await flush(buf, true, event.data.reason?.kind)
         if (list.length === 0) buffers.delete(sessionId)
