@@ -198,6 +198,9 @@ function createTray() {
   tray.on('click', () => showUi())
 }
 
+// macOS: 点击 Dock 图标恢复隐藏的窗口（窗口隐藏到托盘后，Dock 点击依赖 activate 事件）
+app.on('activate', () => { showUi() })
+
 function showUi() {
   if (!uiWindow) { openUi(); return }
   if (uiWindow.isMinimized()) uiWindow.restore()
