@@ -34,6 +34,12 @@ export function qqSessionId(messageType, id) {
   return `qq-${messageType}-${id}`
 }
 
+/** 判断消息是否 @ 了指定 QQ 号（message 为 OneBot 段数组）。 */
+function isAtBot(message, selfId) {
+  if (!Array.isArray(message) || !selfId) return false
+  return message.some((seg) => seg && seg.type === 'at' && String(seg.data?.qq) === String(selfId))
+}
+
 export function apply(ctx, rawConfig = {}) {
   // 1. 配置解析（环境变量 > 补丁 > 默认）
   const config = resolveConfig(rawConfig)
@@ -82,6 +88,9 @@ export function apply(ctx, rawConfig = {}) {
 
   // ---------- QQ → DSH ----------
 
+  /** 机器人自身 QQ 号（从 OneBot meta_event 获取，用于 @ 检测） */
+  let selfId = config.selfId || ''
+
   async function onQqMessage(msg) {
     const text = OneBotClient.extractText(msg.message)
     if (!text) return
@@ -97,9 +106,14 @@ export function apply(ctx, rawConfig = {}) {
     // 群聊能量机制：先记录+扣能量，未达阈值则不回复（像真人不是每条都回）
     const isGroup = msg.message_type === 'group'
     if (isGroup && gcfg.energy?.enabled) {
-      const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text)
-      if (!triggered) return
-      log('info', '[qq-bridge] 群 %s 能量耗尽，触发回复', qqKey)
+      // 被 @ 时强制触发（点名就得回），否则正常 feed
+      if (selfId && isAtBot(msg.message, selfId)) {
+        energy.force(qqKey)
+      } else {
+        const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text)
+        if (!triggered) return
+      }
+      log('info', '[qq-bridge] 群 %s 触发回复（能量 %d）', qqKey, energy.getEnergy(qqKey))
     }
 
     try {
@@ -172,6 +186,10 @@ export function apply(ctx, rawConfig = {}) {
 
   // ---------- 接线 ----------
 
+  bot.on('meta_event', (ev) => {
+    // 记录机器人自身 QQ 号（heartbeat/lifecycle 都带 self_id），供 @ 检测
+    if (ev && ev.self_id) selfId = String(ev.self_id)
+  })
   bot.on('message', (msg) => { void onQqMessage(msg) })
   bot.on('error', (err) => log('warn', '[qq-bridge] onebot: %s', err.message))
   bot.on('reconnecting', (r) => log('info', '[qq-bridge] 重连中: %j', r))
