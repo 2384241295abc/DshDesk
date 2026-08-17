@@ -25,6 +25,7 @@ import { createEnergyManager } from './energy.mjs'
 import { createSessionManager } from './session.mjs'
 import { createReplyBuffer } from './reply-buffer.mjs'
 import { createHandlers } from './handlers.mjs'
+import { createMembersManager } from './members.mjs'
 
 export const name = 'qq-bridge'
 export const inject = ['apiProxy']
@@ -85,11 +86,14 @@ export function apply(ctx, rawConfig = {}) {
     autoAnswer: config.autoAnswer,
     log,
   })
+  const members = createMembersManager({ log })
 
   // ---------- QQ → DSH ----------
 
   /** 机器人自身 QQ 号（从 OneBot meta_event 获取，用于 @ 检测） */
   let selfId = config.selfId || ''
+  /** 已同步过成员列表的群（惰性，每群一次） */
+  const syncedGroups = new Set()
 
   async function onQqMessage(msg) {
     const text = OneBotClient.extractText(msg.message)
@@ -104,9 +108,21 @@ export function apply(ctx, rawConfig = {}) {
     const qqKey = qqSessionId(msg.message_type, msg.group_id ?? msg.user_id)
     // 按群配置：人设/风格/工作目录/目录外权限
     const gcfg = groups.get(qqKey)
+    const isGroup = msg.message_type === 'group'
+
+    // 群聊：观察成员发言（昵称/话题/次数 → 画像），@ 时也记录
+    if (isGroup) {
+      members.observe(qqKey, String(msg.user_id ?? '?'), text)
+      // 惰性同步成员列表（昵称/群名片），每个群首次触发一次
+      if (!syncedGroups.has(qqKey)) {
+        syncedGroups.add(qqKey)
+        void bot.request('get_group_member_list', { group_id: msg.group_id }).then((data) => {
+          if (Array.isArray(data)) members.syncGroup(qqKey, data)
+        }).catch(() => {})
+      }
+    }
 
     // 群聊能量机制：先记录+扣能量，未达阈值则不回复（像真人不是每条都回）
-    const isGroup = msg.message_type === 'group'
     if (isGroup && gcfg.energy?.enabled) {
       // 被 @ 时强制触发（点名就得回），否则正常 feed
       if (isAt) {
@@ -126,10 +142,15 @@ export function apply(ctx, rawConfig = {}) {
         await bot.sendText(target, ackText(gcfg)).catch(() => {})
       }
 
-      // 人设注入 + 群聊上下文 + 权限约束 → prompt 内容块
+      // 人设注入 + 成员认知 + 群聊上下文 + 权限约束 → prompt 内容块
       const persona = buildPersonaPrompt(gcfg)
       const content = []
       if (persona) content.push({ type: 'text', text: persona })
+      // 成员认知：让机器人认识群里的人（昵称/印象/发言次数）
+      if (isGroup) {
+        const mctx = members.buildContext(qqKey, selfId)
+        if (mctx) content.push({ type: 'text', text: mctx })
+      }
       if (isGroup && gcfg.energy?.enabled) {
         const gctx = energy.getContext(qqKey)
         if (gctx) content.push({ type: 'text', text: gctx })
