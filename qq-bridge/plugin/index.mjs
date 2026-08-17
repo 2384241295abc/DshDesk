@@ -93,7 +93,9 @@ export function apply(ctx, rawConfig = {}) {
 
   async function onQqMessage(msg) {
     const text = OneBotClient.extractText(msg.message)
-    if (!text) return
+    // @ 检测必须在 text 过滤之前：@消息可能只有 @ 段(文本为空)，也要触发回复
+    const isAt = selfId ? isAtBot(msg.message, selfId) : false
+    if (!text && !isAt) return
     const target = {
       message_type: msg.message_type,          // 'group' | 'private'
       group_id: msg.group_id,
@@ -107,7 +109,7 @@ export function apply(ctx, rawConfig = {}) {
     const isGroup = msg.message_type === 'group'
     if (isGroup && gcfg.energy?.enabled) {
       // 被 @ 时强制触发（点名就得回），否则正常 feed
-      if (selfId && isAtBot(msg.message, selfId)) {
+      if (isAt) {
         energy.force(qqKey)
       } else {
         const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text)
@@ -132,7 +134,8 @@ export function apply(ctx, rawConfig = {}) {
         const gctx = energy.getContext(qqKey)
         if (gctx) content.push({ type: 'text', text: gctx })
       }
-      content.push({ type: 'text', text })
+      // 纯 @ 消息（文本为空）给默认文本，否则 prompt 无用户消息
+      content.push({ type: 'text', text: text || '（对方@了你）' })
       const scopeNote = gcfg.allowOutside
         ? `（注意：本会话工作目录为 ${gcfg.workdir}，你可以读取工作目录以外的文件，但写入仍以工作目录为准。）`
         : `（注意：本会话工作目录为 ${gcfg.workdir}，你只能访问此目录内的文件，禁止读写目录外的任何文件。）`
