@@ -36,16 +36,13 @@ app/                      Electron 桌面应用源码
   titlebar-preload.js     preload 脚本（窗口控制 IPC）
   renderer/               渲染页面（splash 启动页）
 build/                    构建脚本与产物（跨平台，Node 实现）
-  build-harness.js        克隆 deepseek-harness（锁定 commit）+ 注入 qq-bridge 插件 + pnpm 构建
+  build-harness.js        克隆 deepseek-harness（锁定 commit）+ 注入 QQ 桥插件（独立仓库）+ pnpm 构建
   materialize3.js         node_modules 链接物化（消除 junction/符号链接）
   download-node.js        按平台下载内置 Node 运行时（含 SHASUMS 校验）
   trim.js                 精简 harness（跨平台版 trim.ps1）
   assemble.js             组装应用目录（Windows robocopy / POSIX cp -aL）
   convert-icon.js         SVG -> ICO（png-to-ico）+ PNG 源图
   smoke-test.js           CI/本地冒烟测试（产物启动 + 3080 探测 + 原生模块检查）
-qq-bridge/                QQ 远程交互桥（OneBot 11）
-  plugin/                 @dsh-qq/qq-bridge Cordis 插件（随 harness 注入分发）
-  test/                   mock OneBot 服务器 + 测试补丁（本地联调用）
 setup.iss                 Inno Setup 安装脚本（本地/CI 均可用）
 log.svg                   应用图标（DeepSeek logo）
 ```
@@ -105,7 +102,7 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux.tar.gz Dee
 
 ## QQ 远程交互
 
-应用内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），通过第三方 QQ 框架（如 [NapCat](https://github.com/NapNeko/NapCatQQ)、Lagrange）提供远程交互渠道。
+> QQ 桥插件（`@dsh-qq/qq-bridge`）已独立成单独项目，见私有仓库 **WanShengling**（本地 `~/Documents/DshDesktop/dsh-qq-bridge/`），本仓库通过构建脚本从独立仓库注入。配置 NapCat/Lagrange 后即可通过 QQ 向 Harness 发任务并接收回复。
 
 ### 部署 NapCat（一次性准备，约 10 分钟）
 
