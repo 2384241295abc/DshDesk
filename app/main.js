@@ -326,4 +326,10 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (isQuitting) { stopHarness(); app.quit() }
 })
-process.on('before-quit', () => { stopHarness() })
+// ⚠️ 必须在这里置 isQuitting=true：Dock 右键退出 / Cmd+Q / 应用菜单都会走
+// before-quit，若不清标记，窗口 close 事件会因 isQuitting=false 而
+// preventDefault() 拦截退出，导致应用永远退不掉（只能强杀）。
+process.on('before-quit', () => {
+  isQuitting = true
+  stopHarness()
+})
