@@ -26,7 +26,12 @@ let serverProcess = null
 let stopRequested = false
 
 function appResourcesDir() {
-  return path.join(path.dirname(process.execPath), 'resources')
+  // macOS: 可执行文件在 Contents/MacOS，资源在同级的 Contents/Resources（大写 R，注意大小写！）
+  // Windows/Linux: 资源与可执行文件同级 resources/
+  const exeDir = path.dirname(process.execPath)
+  return process.platform === 'darwin'
+    ? path.join(exeDir, '..', 'Resources')
+    : path.join(exeDir, 'resources')
 }
 function nodeExe() {
   // Windows 内置 node.exe，macOS/Linux 为无扩展名可执行文件
