@@ -109,20 +109,22 @@ export function createMembersManager({ log = () => {} } = {}) {
   }
 
   /** 生成某群成员认知文本（注入 prompt） */
-  function buildContext(qqKey, selfId = '') {
+  function buildContext(qqKey, selfId = '', maxMembers = 15) {
     const g = groups.get(qqKey)
     if (!g || !g.size) return ''
-    const lines = []
-    for (const mem of g.values()) {
-      if (String(mem.userId) === String(selfId)) continue  // 不描述自己
+    // 只注入"活跃成员"（说过话的），并按发言次数降序；避免大群刷爆上下文
+    const active = [...g.values()]
+      .filter((m) => String(m.userId) !== String(selfId) && m.msgCount > 0)
+      .sort((a, b) => b.msgCount - a.msgCount)
+      .slice(0, maxMembers)
+    if (!active.length) return ''
+    const lines = active.map((mem) => {
       const name = displayName(mem)
-      const parts = []
-      if (mem.msgCount > 0) parts.push(`说过${mem.msgCount}次话`)
+      const parts = [`说过${mem.msgCount}次话`]
       if (mem.traits.length) parts.push(`印象:${mem.traits.slice(0, 3).join('、')}`)
       const extra = mem.card && mem.card !== name ? `（群名片:${mem.card}）` : ''
-      lines.push(`${name}${extra}: ${parts.join('，') || '新成员'}`)
-    }
-    if (!lines.length) return ''
+      return `${name}${extra}: ${parts.join('，')}`
+    })
     return `（本群成员认知：${lines.join('；')}。与人对话时自然地知道对方是谁，不用反复确认。）`
   }
 
@@ -130,7 +132,7 @@ export function createMembersManager({ log = () => {} } = {}) {
   function stats() {
     const out = {}
     for (const [qqKey, g] of groups) {
-      out[qqKey] = [...g.values()].map((m) => ({ userId: m.userId, name: m.card || m.nickname, msgCount: m.msgCount, traits: m.traits }))
+      out[qqKey] = [...g.values()].map((m) => ({ userId: m.userId, name: displayName(m), msgCount: m.msgCount, traits: m.traits }))
     }
     return out
   }
