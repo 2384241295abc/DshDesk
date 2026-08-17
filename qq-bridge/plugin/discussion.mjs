@@ -35,14 +35,10 @@ export const EXIT_ENERGY = -24
 export const ACTIVITY_WINDOW_MS = 2 * 60 * 1000
 /** 讨论触发：窗口内发言人数阈值 */
 export const ACTIVITY_SPEAKER_THRESHOLD = 5
-/** 退出讨论后，恢复正常提示的持续时长（毫秒） */
-export const EXIT_HINT_MS = 10 * 60 * 1000
 
 export function createDiscussionManager({ energy, log = () => {} } = {}) {
   /** qqKey -> 是否讨论中 */
   const active = new Set()
-  /** qqKey -> 最近退出讨论的时间戳（供提示词"改回去"） */
-  const justExited = new Map()
   /** qqKey -> [{userId, at}] 最近发言活动（滚动窗口） */
   const activity = new Map()
 
@@ -84,22 +80,14 @@ export function createDiscussionManager({ energy, log = () => {} } = {}) {
   function exit(qqKey) {
     if (!active.has(qqKey)) return false
     active.delete(qqKey)
-    justExited.set(qqKey, Date.now())   // 记录退出时刻（供提示词"改回去"）
     log('info', '[qq-bridge] 群 %s 退出讨论模式', qqKey)
     return true
   }
 
-  /** 讨论/退出提示（注入 prompt） */
+  /** 讨论环境提示（仅讨论中注入；退出后不再注入=自然恢复常态） */
   function getContext(qqKey) {
-    if (active.has(qqKey)) {
-      return `（当前群正在热烈讨论中，多人参与、气氛活跃。你说话要自然融入讨论，可以简短接话、吐槽、附和或反问，别显得突兀，也别一个人长篇大论。）`
-    }
-    // 刚退出讨论：提示"改回去"（恢复正常对话口吻），一段时间后不再注入
-    const exitedAt = justExited.get(qqKey)
-    if (exitedAt && Date.now() - exitedAt < EXIT_HINT_MS) {
-      return `（群里的热烈讨论已经结束了，恢复正常的一对一/日常聊天节奏。你说话回到平时的样子：简短、自然，不再需要刻意融入多人讨论。）`
-    }
-    return ''
+    if (!active.has(qqKey)) return ''
+    return `（当前群正在热烈讨论中，多人参与、气氛活跃。你说话要自然融入讨论，可以简短接话、吐槽、附和或反问，别显得突兀，也别一个人长篇大论。）`
   }
 
   /** 消息后检查：能量 < -24 → 退出讨论并重置能量为常态随机值 */
