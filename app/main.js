@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const http = require('node:http')
 const path = require('node:path')
@@ -24,6 +24,7 @@ let uiWindow = null
 let splashWindow = null
 let serverProcess = null
 let stopRequested = false
+let hideNotified = false   // 首次隐藏到托盘是否已提示过
 
 function appResourcesDir() {
   // macOS: 可执行文件在 Contents/MacOS，资源在同级的 Contents/Resources（大写 R，注意大小写！）
@@ -246,6 +247,13 @@ function openUi() {
     if (!isQuitting) {
       e.preventDefault()
       uiWindow.hide()
+      // 首次隐藏时弹系统通知，提示用户应用仍在后台运行、如何真正退出
+      if (!hideNotified) {
+        hideNotified = true
+        try {
+          new Notification({ title: 'DeepSeek Harness 仍在运行', body: '窗口已最小化到系统托盘，右键托盘图标可退出应用。' }).show()
+        } catch { /* 通知失败不影响功能 */ }
+      }
     }
   })
   // 页面加载完成后，把三个窗口按钮嵌入到页面右上角 + 顶部拖拽区
