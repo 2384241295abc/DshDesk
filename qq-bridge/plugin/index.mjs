@@ -26,6 +26,8 @@ import { createSessionManager } from './session.mjs'
 import { createReplyBuffer } from './reply-buffer.mjs'
 import { createHandlers } from './handlers.mjs'
 import { createMembersManager } from './members.mjs'
+import { createFriendsManager } from './friend.mjs'
+import { createDiscussionManager } from './discussion.mjs'
 
 export const name = 'qq-bridge'
 export const inject = ['apiProxy']
@@ -87,6 +89,8 @@ export function apply(ctx, rawConfig = {}) {
     log,
   })
   const members = createMembersManager({ log })
+  const friends = createFriendsManager({ log })
+  const discussion = createDiscussionManager({ energy, log })
 
   // ---------- QQ → DSH ----------
 
@@ -110,25 +114,41 @@ export function apply(ctx, rawConfig = {}) {
     const gcfg = groups.get(qqKey)
     const isGroup = msg.message_type === 'group'
 
-    // 群聊：观察成员发言（昵称/话题/次数 → 画像），@ 时也记录
+    // 群聊：观察成员发言 + 友好度窗口记录 + @加友好度 + 讨论触发检查
     if (isGroup) {
       members.observe(qqKey, String(msg.user_id ?? '?'), text)
+      friends.recordMessage(qqKey, String(msg.user_id ?? '?'))
       // 惰性同步成员列表（昵称/群名片），每个群首次触发一次
       if (!syncedGroups.has(qqKey)) {
         syncedGroups.add(qqKey)
         void bot.request('get_group_member_list', { group_id: msg.group_id }).then((data) => {
-          if (Array.isArray(data)) members.syncGroup(qqKey, data)
+          if (Array.isArray(data)) {
+            members.syncGroup(qqKey, data)
+            friends.setGroupMembers(qqKey, data.map((m) => m.user_id))
+            // 讨论触发：群成员友好度总和 > 成员数 × 80
+            discussion.checkEnter(qqKey, friends.groupTotalAll(qqKey), data.length)
+          }
         }).catch(() => {})
+      }
+      // @ 万生玲的用户友好度 +5
+      if (isAt) {
+        friends.boost(String(msg.user_id ?? '?'))
+        log('info', '[qq-bridge] 用户 %s @万生玲，友好度 +5 → %d', msg.user_id, friends.get(msg.user_id))
       }
     }
 
     // 群聊能量机制：先记录+扣能量，未达阈值则不回复（像真人不是每条都回）
     if (isGroup && gcfg.energy?.enabled) {
+      // 讨论模式退出检查（能量 < -1540）
+      discussion.checkExit(qqKey)
       // 被 @ 时强制触发（点名就得回），否则正常 feed
       if (isAt) {
         energy.force(qqKey)
       } else {
-        const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text)
+        // 挚友能量减免：挚友每句话减 7 能量（即 msgCost 减少）
+        const bonus = friends.friendEnergyBonus(String(msg.user_id ?? '?'))
+        const cost = Math.max(0, (gcfg.energy.msgCost ?? 10) - bonus)
+        const triggered = energy.feed(qqKey, String(msg.user_id ?? '?'), text, cost)
         if (!triggered) return
       }
       log('info', '[qq-bridge] 群 %s 触发回复（能量 %d）', qqKey, energy.getEnergy(qqKey))
@@ -150,6 +170,9 @@ export function apply(ctx, rawConfig = {}) {
       if (isGroup) {
         const mctx = members.buildContext(qqKey, selfId)
         if (mctx) content.push({ type: 'text', text: mctx })
+        // 友好度认知：告诉万生玲与当前发言者的熟悉度
+        const fctx = friends.buildContext(qqKey, selfId, String(msg.user_id ?? ''))
+        if (fctx) content.push({ type: 'text', text: fctx })
       }
       if (isGroup && gcfg.energy?.enabled) {
         const gctx = energy.getContext(qqKey)
@@ -177,8 +200,19 @@ export function apply(ctx, rawConfig = {}) {
           log('info', '[qq-bridge] queued "%s" -> %s', text.slice(0, 40), sessionId)
           // 群聊：回复已入队，重置能量（开始下一轮衰减）
           if (isGroup && gcfg.energy?.enabled) {
-            const e = energy.reset(qqKey)
-            log('info', '[qq-bridge] 群 %s 已回复，能量重置为 %d', qqKey, e)
+            if (discussion.isActive(qqKey)) {
+              // 讨论模式：每次回复后能量重置 30
+              discussion.onReply(qqKey)
+              log('info', '[qq-bridge] 群 %s 讨论中回复，能量重置为 30', qqKey)
+            } else {
+              const e = energy.reset(qqKey)
+              log('info', '[qq-bridge] 群 %s 已回复，能量重置为 %d', qqKey, e)
+            }
+          }
+          // 万生玲发言：结算友好度窗口（前后各5条内成员 +1）
+          if (isGroup) {
+            const gained = friends.feedWindow(qqKey, selfId)
+            if (gained.length) log('info', '[qq-bridge] 友好度结算 %s', JSON.stringify(gained))
           }
           return
         }

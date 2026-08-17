@@ -59,9 +59,10 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
 
   /**
    * 记录群消息并扣能量（惰性衰减 + 消息扣能）。
+   * @param {number} [cost] 消息扣能量，缺省用 opts.msgCost（挚友减免等场景传入更小值）
    * @returns {boolean} true = 达到触发阈值（应回复）
    */
-  function feed(qqKey, user, text) {
+  function feed(qqKey, user, text, cost) {
     const now = Date.now()
     let st = states.get(qqKey)
     if (!st) {
@@ -72,8 +73,9 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
     st.history.push({ user, text, at: now })
     const keep = opts.contextWindow
     if (st.history.length > keep) st.history = st.history.slice(-keep)
-    st.energy -= opts.msgCost
-    log('info', '[qq-bridge] 群 %s 能量 %d (消息 -%d)', qqKey, st.energy, opts.msgCost)
+    const c = cost ?? opts.msgCost
+    st.energy -= c
+    log('info', '[qq-bridge] 群 %s 能量 %d (消息 -%d)', qqKey, st.energy, c)
     return st.energy < 0
   }
 
@@ -88,6 +90,19 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
     applyDecay(st, now)
     st.energy = -1
     log('info', '[qq-bridge] 群 %s 被@，能量强制置 -1', qqKey)
+  }
+
+  /** 设置能量为指定值（讨论模式等用） */
+  function forceTo(qqKey, value) {
+    const now = Date.now()
+    let st = states.get(qqKey)
+    if (!st) {
+      st = { energy: opts.range[0], lastTick: now, history: [] }
+      states.set(qqKey, st)
+    }
+    applyDecay(st, now)
+    st.energy = value
+    return st.energy
   }
 
   /** 当前是否应回复（能量 < 0） */
@@ -123,5 +138,5 @@ export function createEnergyManager({ energy = {}, log = () => {} } = {}) {
     states.clear()
   }
 
-  return { feed, force, shouldReply, getContext, reset, getEnergy, stats, dispose }
+  return { feed, force, forceTo, shouldReply, getContext, reset, getEnergy, stats, dispose }
 }
