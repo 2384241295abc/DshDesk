@@ -160,8 +160,30 @@ jobs:
           dpkg-deb --build --root-owner-group "$PKG" "installers/${APP}_${VER}_${ARCH}.deb"
           rm -rf "$PKG"
 
-      - name: Upload installer to GitHub Release
+      # ---------- 上传安装包到 Actions artifacts（release 作业统一发布，避免三平台并行写同 Release 竞态） ----------
+      - name: Upload installer artifacts
         if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: installers/
+          if-no-files-found: error
+          retention-days: 1
+
+  # 单一发布作业：等三平台构建全部完成后，统一上传 Release（消除并发写同一 tag 的竞态失败）
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Upload installer to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: installers/*
