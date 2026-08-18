@@ -3,12 +3,14 @@
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const http = require('node:http')
+const net = require('node:net')
 const path = require('node:path')
 const fs = require('node:fs')
 
 const HARNESS_PORT = 3080
 const BOOT_MARKER = '__DSH_BOOT__'
 const START_TIMEOUT_MS = 120 * 1000
+const IS_MAC = process.platform === 'darwin'
 
 let tray = null
 let isQuitting = false
@@ -74,6 +76,17 @@ function probeServer() {
   })
 }
 
+// 端口是否被任意进程监听(无论是否为 DSH);用于区分「端口空闲」与「被残留进程占用」
+function portInUse() {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: '127.0.0.1', port: HARNESS_PORT })
+    sock.setTimeout(1500)
+    sock.once('connect', () => { sock.destroy(); resolve(true) })
+    sock.once('error', () => resolve(false))
+    sock.once('timeout', () => { sock.destroy(); resolve(false) })
+  })
+}
+
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function showError(msg) {
@@ -86,6 +99,13 @@ function showError(msg) {
 async function startHarness() {
   // 端口上已有一个可用实例则直接复用
   if (await probeServer()) return true
+
+  // 端口被占用但响应中无 DSH 标记 → 残留进程占坑(常见于上次未彻底退出)
+  // 此时 spawn 新实例必然因端口冲突失败,直接给出明确指引
+  if (await portInUse()) {
+    showError(`端口 ${HARNESS_PORT} 已被其他进程占用且不是 DeepSeek Harness。\n\n这通常是上次退出未彻底(残留进程占住端口)所致。\n请先退出本应用,再在终端执行:\n  lsof -ti:${HARNESS_PORT} | xargs kill -9\n然后重新启动应用。`)
+    return false
+  }
 
   const node = nodeExe()
   const cwd = harnessDir()
@@ -130,8 +150,6 @@ async function startHarness() {
   }
 }
 
-const delay2 = (ms) => new Promise((r) => setTimeout(r, ms))
-
 function killGroup(pid, signal) {
   try { process.kill(-pid, signal) } catch { /* 进程可能已退出 */ }
 }
@@ -139,24 +157,40 @@ function groupAlive(pid) {
   try { process.kill(-pid, 0); return true } catch { return false }
 }
 
+// 停止 harness:先 SIGTERM 整个进程组,等待退出;未退出则 SIGKILL。
+// 返回 Promise,resolve 时进程组已确认退出(或已发 SIGKILL)。
+// ⚠️ 调用方必须 await 完成后再退出应用:
+// Electron 主进程一旦真正开始退出,事件循环中的 setTimeout 回调不再执行,
+// 若 SIGKILL 兜底是 fire-and-forget 的异步定时器,进程退出后兜底永不触发 → 残留进程占住 3080。
 function stopHarness() {
   stopRequested = true
-  if (serverProcess && serverProcess.pid) {
+  if (!serverProcess || !serverProcess.pid) return Promise.resolve()
+  const pid = serverProcess.pid
+  serverProcess = null
+  return new Promise((resolve) => {
     try {
       if (process.platform === 'win32') {
-        spawnSync('taskkill', ['/pid', String(serverProcess.pid), '/T', '/F'], { windowsHide: true })
-      } else {
-        // 先 SIGTERM 整个进程组，3 秒后未退出再 SIGKILL（防孤儿孙进程占住 3080）
-        const pid = serverProcess.pid
-        killGroup(pid, 'SIGTERM')
-        ;(async () => {
-          await delay2(3000)
-          if (groupAlive(pid)) killGroup(pid, 'SIGKILL')
-        })()
+        spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true })
+        resolve()
+        return
       }
-    } catch { /* 忽略 */ }
-    serverProcess = null
-  }
+      killGroup(pid, 'SIGTERM')
+      // 最多等 5 秒:每 200ms 检查进程组是否退出,超时 SIGKILL 后再等 1 秒
+      const check = () => {
+        if (!groupAlive(pid)) { resolve(); return }
+        if (Date.now() < deadline) { setTimeout(check, 200); return }
+        killGroup(pid, 'SIGKILL')
+        const deadline2 = Date.now() + 1000
+        const check2 = () => {
+          if (!groupAlive(pid) || Date.now() >= deadline2) { resolve(); return }
+          setTimeout(check2, 100)
+        }
+        check2()
+      }
+      const deadline = Date.now() + 5000
+      check()
+    } catch { resolve() }
+  })
 }
 
 // MD3 风格启动加载页：圆角卡片 + 左上角 logo + 底部滚动进度条
@@ -189,11 +223,7 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开界面', click: () => showUi() },
     { type: 'separator' },
-    { label: '退出', click: () => {
-      isQuitting = true
-      stopHarness()
-      app.quit()
-    } },
+    { label: '退出', click: () => app.quit() }, // 统一走 before-quit：置 isQuitting + await 清理 harness 进程组
   ]))
   tray.on('click', () => showUi())
 }
@@ -209,12 +239,17 @@ function showUi() {
 }
 
 function openUi() {
+  // macOS: 使用原生红黄绿交通灯(titleBarStyle: 'hiddenInset' 隐藏标题栏但保留原生按钮)
+  // Windows/Linux: 完全无边框 + 注入自绘按钮(见 injectWindowControls)
+  const winOpts = IS_MAC
+    ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 12 } }
+    : { frame: false }
   uiWindow = new BrowserWindow({
     width: 1280, height: 860,
     minWidth: 800, minHeight: 600,
     title: 'DeepSeek Harness',
     icon: appIcon(),
-    frame: false, // 完全无边框，UI 铺满窗口
+    ...winOpts,
     webPreferences: {
       preload: path.join(__dirname, 'titlebar-preload.js'),
       contextIsolation: true,
@@ -268,9 +303,26 @@ function openUi() {
   uiWindow.on('unmaximize', () => uiWindow.webContents.send('win:maximized-change', false))
 }
 
-// 向 harness 页面注入浮动的窗口控制按钮（右上角）与拖拽区
-// Windows 用 Segoe MDL2 Assets 原生图标字体；macOS/Linux 用内联 SVG（避免豆腐块）
+// 向 harness 页面注入浮动窗口控件与拖拽区。
+// macOS: 原生交通灯在左上角(12,12 起,约 70px 宽)，仅注入顶部拖拽区(左侧留出交通灯空间)，
+//        不注入自绘按钮——关闭/最小化/全屏均走系统红黄绿按钮。
+// Windows/Linux: 注入右上角自绘按钮 + 整行拖拽区。
 function injectWindowControls(wc) {
+  if (IS_MAC) {
+    // macOS: 顶部拖拽区，避开左侧约 84px 的原生交通灯
+    const cssMac = `
+      .dsh-drag-region { position: fixed; top: 0; left: 84px; right: 0; height: 32px; -webkit-app-region: drag; z-index: 2147483646; }
+      .dsh-drag-region::after { content: ''; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 160px; height: 5px; border-radius: 3px; background: rgba(128,128,128,0.28); }
+    `
+    wc.insertCSS(cssMac).catch(() => {})
+    const jsMac = `(function(){
+      if (document.querySelector('.dsh-drag-region')) return;
+      var drag = document.createElement('div'); drag.className = 'dsh-drag-region'; document.body.appendChild(drag);
+    })();`
+    wc.executeJavaScript(jsMac).catch(() => {})
+    return
+  }
+
   const isWin = process.platform === 'win32'
   const css = `
     .dsh-drag-region { position: fixed; top: 0; left: 0; right: 138px; height: 32px; -webkit-app-region: drag; z-index: 2147483646; }
@@ -335,12 +387,18 @@ app.whenReady().then(async () => {
 
 // 窗口关闭到托盘后不退出；仅真正退出时才停服
 app.on('window-all-closed', () => {
-  if (isQuitting) { stopHarness(); app.quit() }
+  if (isQuitting) app.quit()
 })
 // ⚠️ 必须在这里置 isQuitting=true：Dock 右键退出 / Cmd+Q / 应用菜单都会走
 // before-quit，若不清标记，窗口 close 事件会因 isQuitting=false 而
 // preventDefault() 拦截退出，导致应用永远退不掉（只能强杀）。
-process.on('before-quit', () => {
+// 同时：必须 await stopHarness() 完成后再真正退出——
+// 否则主进程退出后，进程组清理的异步兜底(SIGKILL)不再执行 → 残留 harness 占住 3080。
+let quitCleanupStarted = false
+app.on('before-quit', (e) => {
   isQuitting = true
-  stopHarness()
+  if (quitCleanupStarted) return // 二次进入(清理完成后的真正退出)直接放行
+  quitCleanupStarted = true
+  e.preventDefault() // 先拦下退出，等待 harness 进程组清理完成
+  stopHarness().then(() => app.quit())
 })
