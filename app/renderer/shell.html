@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>DeepSeek Harness</title>
+<style>
+  /* 皮肤变量：由 theme.js 注入(桌面壳皮肤接口,非 web DOM 注入) */
+  :root {
+    --nav-h: 44px;
+    --nav-bg: rgba(18,18,22,0.97);
+    --nav-text: #c9c9cd;
+    --nav-active: #ffffff;
+    --accent: #e81123;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #101014; }
+
+  /* 顶部导航栏(桌面壳自己的 UI 层) */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--nav-h);
+    display: flex; align-items: center; gap: 2px; padding: 0 10px;
+    background: var(--nav-bg); z-index: 10;
+    -webkit-app-region: drag;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    user-select: none;
+  }
+  #topbar .app-title { color: #8a8a90; font-size: 12px; margin-right: 14px; white-space: nowrap; }
+  #topbar .nav-btn {
+    -webkit-app-region: no-drag; border: none; background: transparent;
+    color: var(--nav-text); font-size: 13px; padding: 5px 16px; border-radius: 8px;
+    cursor: pointer; display: flex; align-items: center; gap: 6px; line-height: 1.4;
+  }
+  #topbar .nav-btn:hover { background: rgba(255,255,255,0.08); color: var(--nav-active); }
+  #topbar .nav-btn.active { background: rgba(255,255,255,0.14); color: var(--nav-active); }
+  #topbar .spacer { flex: 1; }
+  #topbar .version { color: rgba(255,255,255,0.35); font-size: 11px; }
+
+  /* 非 macOS 自绘窗口按钮(右上角) */
+  #win-controls { display: none; -webkit-app-region: no-drag; }
+  #win-controls button {
+    width: 44px; height: var(--nav-h); border: none; background: transparent;
+    color: #8a8a90; font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; }
+  #win-controls button:hover { background: rgba(255,255,255,0.10); color: #fff; }
+  #win-controls button.wc-close:hover { background: var(--accent); color: #fff; }
+  body.win #win-controls { display: flex; }
+  body.win #topbar { padding-right: 0; }
+
+  /* 内容区(WebContentsView 挂载点) */
+  #content { position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0; }
+</style>
+</head>
+<body>
+  <div id="topbar">
+    <div id="win-controls">
+      <button id="wc-min" title="最小化">—</button>
+      <button id="wc-max" title="最大化">□</button>
+      <button id="wc-close" class="wc-close" title="关闭">✕</button>
+    </div>
+  </div>
+  <div id="content"></div>
+  <script src="shell.js"></script>
+</body>
+</html>
