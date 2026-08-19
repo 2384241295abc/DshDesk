@@ -2,64 +2,155 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:*">
 <title>DeepSeek Harness</title>
 <style>
-  /* 皮肤变量：由 theme.js 注入(桌面壳皮肤接口,非 web DOM 注入) */
+  /* 皮肤变量：由主进程经 shell:theme 注入(见 theme.js),此处为默认兜底值 */
   :root {
     --nav-h: 44px;
     --nav-bg: rgba(18,18,22,0.97);
     --nav-text: #c9c9cd;
     --nav-active: #ffffff;
-    --accent: #e81123;
+    --nav-hover-bg: rgba(255,255,255,0.08);
+    --nav-active-bg: rgba(255,255,255,0.14);
+    --title-color: #8a8a90;
+    --version-color: rgba(255,255,255,0.35);
+    --win-btn-color: #8a8a90;
+    --win-btn-hover: rgba(255,255,255,0.10);
+    --win-close-bg: #e81123;
+    --app-bg: #101014;
+    --border: rgba(255,255,255,0.08);
+    --panel-bg: #1c1c22;
+    --panel-text: #d0d0d6;
+    --panel-hover: rgba(255,255,255,0.08);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #101014; }
+  html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--app-bg); }
 
-  /* 顶部导航栏(桌面壳自己的 UI 层) */
+  /* ============ 模块:topbar(顶部导航栏) ============ */
   #topbar {
     position: fixed; top: 0; left: 0; right: 0; height: var(--nav-h);
     display: flex; align-items: center; gap: 2px; padding: 0 10px;
     background: var(--nav-bg); z-index: 10;
     -webkit-app-region: drag;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid var(--border);
     user-select: none;
   }
-  #topbar .app-title { color: #8a8a90; font-size: 12px; margin-right: 14px; white-space: nowrap; }
+  #topbar .app-title { color: var(--title-color); font-size: 12px; margin-right: 14px; white-space: nowrap; }
+  /* nav-slot:页面切换按钮区,强制横向排列 */
+  #topbar #nav-slot { display: flex; align-items: center; gap: 2px; }
   #topbar .nav-btn {
     -webkit-app-region: no-drag; border: none; background: transparent;
     color: var(--nav-text); font-size: 13px; padding: 5px 16px; border-radius: 8px;
     cursor: pointer; display: flex; align-items: center; gap: 6px; line-height: 1.4;
   }
-  #topbar .nav-btn:hover { background: rgba(255,255,255,0.08); color: var(--nav-active); }
-  #topbar .nav-btn.active { background: rgba(255,255,255,0.14); color: var(--nav-active); }
+  #topbar .nav-btn:hover { background: var(--nav-hover-bg); color: var(--nav-active); }
+  #topbar .nav-btn.active { background: var(--nav-active-bg); color: var(--nav-active); }
   #topbar .spacer { flex: 1; }
-  #topbar .version { color: rgba(255,255,255,0.35); font-size: 11px; }
+  #topbar .version { color: var(--version-color); font-size: 11px; }
 
-  /* 非 macOS 自绘窗口按钮(右上角) */
+  /* 设置齿轮按钮(点击弹原生皮肤菜单) */
+  #settings-btn {
+    -webkit-app-region: no-drag; border: none; background: transparent;
+    color: var(--title-color); padding: 0; border-radius: 8px;
+    cursor: pointer; margin-right: 2px; display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; flex-shrink: 0; }
+  #settings-btn svg { width: 15px; height: 15px; fill: currentColor; }
+  #settings-btn:hover { background: var(--nav-hover-bg); color: var(--nav-active); }
+
+  /* ============ 模块:win-controls(窗口控制,非macOS) ============ */
   #win-controls { display: none; -webkit-app-region: no-drag; }
   #win-controls button {
     width: 44px; height: var(--nav-h); border: none; background: transparent;
-    color: #8a8a90; font-size: 14px; cursor: pointer;
+    color: var(--win-btn-color); font-size: 14px; cursor: pointer;
     display: flex; align-items: center; justify-content: center; }
-  #win-controls button:hover { background: rgba(255,255,255,0.10); color: #fff; }
-  #win-controls button.wc-close:hover { background: var(--accent); color: #fff; }
+  #win-controls button:hover { background: var(--win-btn-hover); color: var(--nav-active); }
+  #win-controls button.wc-close:hover { background: var(--win-close-bg); color: #fff; }
   body.win #win-controls { display: flex; }
   body.win #topbar { padding-right: 0; }
 
-  /* 内容区(WebContentsView 挂载点) */
+  /* ============ 模块:content(内容视图区) ============ */
   #content { position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0; }
+
+  /* ============ 模块:launcher(启动页,主窗口默认显示) ============ */
+  #launcher {
+    position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; background: var(--app-bg); z-index: 5; user-select: none; }
+  #launcher .launcher-logo { width: 64px; height: 64px; opacity: 0.95; }
+  #launcher .launcher-title { color: var(--nav-active); font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
+  #launcher .launcher-sub { color: var(--title-color); font-size: 13px; }
+  #launcher .launcher-actions { display: flex; gap: 12px; margin-top: 8px; }
+  #launcher .launcher-btn {
+    border: none; padding: 9px 26px; border-radius: 10px; cursor: pointer;
+    font-size: 14px; font-family: inherit; transition: background 0.15s;
+    -webkit-app-region: no-drag; }
+  #launcher .launcher-btn.primary {
+    background: #4D6BFE; color: #fff; font-weight: 500; }
+  #launcher .launcher-btn.primary:hover { background: #5d7bff; }
+  #launcher .launcher-btn.ghost {
+    background: transparent; color: var(--nav-text); border: 1px solid var(--border); }
+  #launcher .launcher-btn.ghost:hover { background: var(--nav-hover-bg); }
+  #launcher .launcher-btn:disabled { opacity: 0.5; cursor: default; }
+  #launcher .launcher-status {
+    color: var(--version-color); font-size: 12px; min-height: 18px;
+    text-align: center; max-width: 420px; line-height: 1.5; }
+  /* 更新进度条 */
+  #launcher .launcher-progress {
+    display: none; width: 320px; height: 5px; border-radius: 999px;
+    background: var(--nav-hover-bg); overflow: hidden; }
+  #launcher .launcher-progress.visible { display: block; }
+  #launcher .launcher-progress i {
+    display: block; height: 100%; width: 0%; border-radius: 999px;
+    background: #4D6BFE; transition: width 0.2s; }
+
+  /* 主界面视图(工作台;iframe 与壳同层,顶栏可交互) */
+  #app-view { display: none; position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0; }
+  #app-view iframe { width: 100%; height: 100%; border: none; background: #0c0c10; }
+  /* 视图切换由 shell.js 显式控制 display(launcher: flex / app-view: block) */
 </style>
 </head>
 <body>
+  <!-- 模块:topbar -->
   <div id="topbar">
+    <span class="app-title">DeepSeek Harness</span>
+    <!-- 模块:nav(页面切换,由 shell.js 渲染) -->
+    <span id="nav-slot"></span>
+    <span class="spacer"></span>
+    <button id="settings-btn" title="设置" aria-label="设置">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.63.09.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
+    </button>
+    <!-- 模块:win-controls(非macOS) -->
     <div id="win-controls">
       <button id="wc-min" title="最小化">—</button>
       <button id="wc-max" title="最大化">□</button>
       <button id="wc-close" class="wc-close" title="关闭">✕</button>
     </div>
   </div>
-  <div id="content"></div>
+
+  <!-- 模块:launcher(启动页) -->
+  <div id="launcher">
+    <svg class="launcher-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M23.748 4.482c-.254-.124-.364.113-.512.234-.051.039-.094.09-.137.136-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.156-.708-.311-.955-.65-.172-.241-.219-.51-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.093.172.187.129.323-.082.28-.18.552-.266.833-.055.179-.137.217-.329.14a5.526 5.526 0 01-1.736-1.18c-.857-.828-1.631-1.742-2.597-2.458a11.365 11.365 0 00-.689-.471c-.985-.957.13-1.743.388-1.836.27-.098.093-.432-.779-.428-.872.004-1.67.295-2.687.684a3.055 3.055 0 01-.465.137 9.597 9.597 0 00-2.883-.102c-1.885.21-3.39 1.102-4.497 2.623C.082 8.606-.231 10.684.152 12.85c.403 2.284 1.569 4.175 3.36 5.653 1.858 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.133-.284 4.994-1.86.47.234.962.327 1.78.397.63.059 1.236-.03 1.705-.128.735-.156.684-.837.419-.961-2.155-1.004-1.682-.595-2.113-.926 1.096-1.296 2.746-2.642 3.392-7.003.05-.347.007-.565 0-.845-.004-.17.035-.237.23-.256a4.173 4.173 0 001.545-.475c1.396-.763 1.96-2.015 2.093-3.517.02-.23-.004-.467-.247-.588zM11.581 18c-2.089-1.642-3.102-2.183-3.52-2.16-.392.024-.321.471-.235.763.09.288.207.486.371.739.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.167-1.361-.802-2.5-1.86-3.301-3.307-.774-1.393-1.224-2.887-1.298-4.482-.02-.386.093-.522.477-.592a4.696 4.696 0 011.529-.039c2.132.312 3.946 1.265 5.468 2.774.868.86 1.525 1.887 2.202 2.891.72 1.066 1.494 2.082 2.48 2.914.348.292.625.514.891.677-.802.09-2.14.11-3.054-.614zm1-6.44a.306.306 0 01.415-.287.302.302 0 01.2.288.306.306 0 01-.31.307.303.303 0 01-.304-.308zm3.11 1.596c-.2.081-.399.151-.59.16a1.245 1.245 0 01-.798-.254c-.274-.23-.47-.358-.552-.758a1.73 1.73 0 01.016-.588c.07-.327-.008-.537-.239-.727-.187-.156-.426-.199-.688-.199a.559.559 0 01-.254-.078c-.11-.054-.2-.19-.114-.358.028-.054.16-.186.192-.21.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.391.451.462.576.685.914.176.265.336.537.445.848.067.195-.019.354-.25.452z" fill="#4D6BFE"/>
+    </svg>
+    <div class="launcher-title">DeepSeek Harness</div>
+    <div class="launcher-sub">桌面端 · 启动器</div>
+    <div class="launcher-actions">
+      <button id="btn-update" class="launcher-btn ghost">检查更新</button>
+      <button id="btn-enter" class="launcher-btn primary">进入</button>
+    </div>
+    <div class="launcher-status" id="launcher-status"></div>
+    <div class="launcher-progress" id="launcher-progress"><i></i></div>
+  </div>
+
+  <!-- 模块:app-view(主界面,进入后显示;iframe 承载 DSH/NapCat) -->
+  <div id="app-view">
+    <iframe id="app-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+  </div>
+
+  <!-- 模块:content(保留兼容占位) -->
+  <div id="content" style="display:none"></div>
+
   <script src="shell.js"></script>
 </body>
 </html>

@@ -1,20 +1,22 @@
 'use strict'
 
 // ============================================================================
-// DeepSeek Harness 桌面壳 —— WebContentsView 架构
+// DeepSeek Harness 桌面壳 —— 同层 iframe 架构
 //
-// 布局由桌面壳掌控(不是注入 web DOM):
+// 布局由桌面壳掌控:
 //   ┌──────────────────────────────────────┐
-//   │ 顶部导航栏(壳原生 UI: shell.html)      │  ← 页面切换/版本,永远固定
+//   │ 顶部导航栏(壳原生 UI: shell.html)      │  ← 页面切换/设置,始终可交互
 //   ├──────────────────────────────────────┤
-//   │ WebContentsView(内容视图)             │  ← DSH / NapCat,随窗口缩放
+//   │ 启动页(launcher) / iframe(主界面)      │  ← 同层:iframe 与壳同一 web 内容
 //   └──────────────────────────────────────┘
 //
-// 皮肤接口: theme.js(桌面壳皮肤,与 web 无关)
-// 页面接口: pages.js(registerPage 注册新页面)
+// iframe 方案:DSH/NapCat 通过 iframe 嵌入壳 web 内容,与顶栏同层,
+// 顶栏不被遮挡、始终可交互(WebContentsView 原生层会盖住壳的问题已根治)。
+//
+// 皮肤接口 theme.js / 页面接口 pages.js / 更新 updater.js / 皮肤定制(原生菜单)
 // ============================================================================
 
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, Notification } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const http = require('node:http')
 const net = require('node:net')
@@ -23,17 +25,18 @@ const fs = require('node:fs')
 
 const { readNapCatWebUIConfig } = require('./napcat-auth.js')
 const { registerPage, listPages, getPage } = require('./pages.js')
+const { getSkin, listSkins, createSkin, registerSkin, deleteSkin } = require('./theme.js')
+const updater = require('./updater.js')
 
 const HARNESS_PORT = 3080
 const BOOT_MARKER = '__DSH_BOOT__'
 const START_TIMEOUT_MS = 120 * 1000
 const IS_MAC = process.platform === 'darwin'
-const NAV_H = 44   // 顶部导航栏高度(壳 UI)
+const NAV_H = 44
 
-let tray = null
 let isQuitting = false
 
-// 单实例：启动期间再双击不会拉起第二个后端，而是唤起已有窗口
+// 单实例
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -41,15 +44,14 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let uiWindow = null
-let contentView = null
 let splashWindow = null
 let serverProcess = null
 let stopRequested = false
 let hideNotified = false
 let currentPageId = 'main'
+let currentSkinName = 'default'
 
 function appResourcesDir() {
-  // macOS: 可执行文件在 Contents/MacOS，资源在同级的 Contents/Resources（大写 R）
   const exeDir = path.dirname(process.execPath)
   return process.platform === 'darwin'
     ? path.join(exeDir, '..', 'Resources')
@@ -92,8 +94,6 @@ function probeServer() {
     req.on('timeout', () => { req.destroy(); resolve(false) })
   })
 }
-
-// 端口是否被任意进程监听(区分「端口空闲」与「被残留进程占用」)
 function portInUse() {
   return new Promise((resolve) => {
     const sock = net.connect({ host: '127.0.0.1', port: HARNESS_PORT })
@@ -103,26 +103,21 @@ function portInUse() {
     sock.once('timeout', () => { sock.destroy(); resolve(false) })
   })
 }
-
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function showError(msg) {
   console.error(msg)
   try {
     dialog.showErrorBox('DeepSeek Harness 启动失败', `${msg}\n\n日志文件：${errFile()}`)
-  } catch { /* 对话框失败则忽略 */ }
+  } catch { /* 忽略 */ }
 }
 
 async function startHarness() {
-  // 端口上已有一个可用实例则直接复用
   if (await probeServer()) return true
-
-  // 端口被占用但无 DSH 标记 → 残留进程占坑,给出明确指引
   if (await portInUse()) {
     showError(`端口 ${HARNESS_PORT} 已被其他进程占用且不是 DeepSeek Harness。\n\n这通常是上次退出未彻底(残留进程占住端口)所致。\n请先退出本应用,再在终端执行:\n  lsof -ti:${HARNESS_PORT} | xargs kill -9\n然后重新启动应用。`)
     return false
   }
-
   const node = nodeExe()
   const cwd = harnessDir()
   if (!fs.existsSync(node)) { showError(`Node 运行时缺失：${node}`); return false }
@@ -165,13 +160,11 @@ async function startHarness() {
 }
 
 function killGroup(pid, signal) {
-  try { process.kill(-pid, signal) } catch { /* 进程可能已退出 */ }
+  try { process.kill(-pid, signal) } catch { /* 已退出 */ }
 }
 function groupAlive(pid) {
   try { process.kill(-pid, 0); return true } catch { return false }
 }
-
-// 停止 harness:先 SIGTERM 进程组,等待退出;未退出则 SIGKILL。返回 Promise。
 function stopHarness() {
   stopRequested = true
   if (!serverProcess || !serverProcess.pid) return Promise.resolve()
@@ -189,9 +182,9 @@ function stopHarness() {
         if (!groupAlive(pid)) { resolve(); return }
         if (Date.now() < deadline) { setTimeout(check, 200); return }
         killGroup(pid, 'SIGKILL')
-        const deadline2 = Date.now() + 1000
+        const d2 = Date.now() + 1000
         const check2 = () => {
-          if (!groupAlive(pid) || Date.now() >= deadline2) { resolve(); return }
+          if (!groupAlive(pid) || Date.now() >= d2) { resolve(); return }
           setTimeout(check2, 100)
         }
         check2()
@@ -202,7 +195,6 @@ function stopHarness() {
   })
 }
 
-// MD3 风格启动加载页
 function createSplash() {
   splashWindow = new BrowserWindow({
     width: 400, height: 148,
@@ -216,15 +208,8 @@ function createSplash() {
   splashWindow.loadFile(path.join(__dirname, 'renderer', 'splash.html'))
 }
 function splashDone() {
-  if (splashWindow) {
-    splashWindow.close()
-    splashWindow = null
-  }
+  if (splashWindow) { splashWindow.close(); splashWindow = null }
 }
-
-// 系统托盘已移除(2026-08-19)：不再常驻菜单栏图标。
-// 关闭窗口 → 隐藏(Dock 点击恢复,Cmd+Q / Dock 右键退出)。
-// 若未来需要托盘常驻,在此恢复 createTray 即可。
 
 app.on('activate', () => { showUi() })
 
@@ -235,33 +220,38 @@ function showUi() {
   uiWindow.focus()
 }
 
-// ---------- 页面注册(见 pages.js) ----------
+// ---------- 皮肤状态 ----------
+function skinStateFile() { return path.join(app.getPath('userData'), 'skin.json') }
+function loadSkinState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(skinStateFile(), 'utf8'))
+    if (s && s.skin && listSkins().some((k) => k.name === s.skin)) currentSkinName = s.skin
+  } catch { /* 首次 */ }
+}
+function saveSkinState() {
+  try { fs.writeFileSync(skinStateFile(), JSON.stringify({ skin: currentSkinName })) } catch { /* 忽略 */ }
+}
+function applySkin(name) {
+  const skin = getSkin(name)
+  if (!skin) return
+  currentSkinName = skin.name
+  saveSkinState()
+  if (uiWindow && !uiWindow.isDestroyed()) {
+    uiWindow.webContents.send('shell:theme', skin.colors)
+    uiWindow.webContents.send('shell:skins', listSkins().map((s) => ({ name: s.name, label: s.label, colors: s.colors, images: s.images, animations: s.animations })), currentSkinName)
+  }
+}
+
+// ---------- 页面注册 ----------
 function registerBuiltinPages() {
+  registerPage({ id: 'main', label: '主界面', url: `http://127.0.0.1:${HARNESS_PORT}` })
   registerPage({
-    id: 'main',
-    label: '主界面',
-    url: `http://127.0.0.1:${HARNESS_PORT}`,
-  })
-  registerPage({
-    id: 'napcat',
-    label: 'NapCat',
+    id: 'napcat', label: 'NapCat',
     url: () => {
       const cfg = readNapCatWebUIConfig()
       const port = cfg?.port || 6099
       const token = cfg?.token || ''
-      // NapCat WebUI 原生登录:URL 带 ?token= 自动消费
-      return token
-        ? `http://127.0.0.1:${port}/webui?token=${encodeURIComponent(token)}`
-        : `http://127.0.0.1:${port}/webui`
-    },
-    onEnter: (win) => {
-      const cfg = readNapCatWebUIConfig()
-      const port = cfg?.port || 6099
-      try {
-        const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 2000 }, (res) => res.resume())
-        req.on('error', () => {})
-        req.on('timeout', () => req.destroy())
-      } catch { /* 仅探活 */ }
+      return token ? `http://127.0.0.1:${port}/webui?token=${encodeURIComponent(token)}` : `http://127.0.0.1:${port}/webui`
     },
   })
 }
@@ -273,14 +263,30 @@ function navigateTo(pageId, opts = {}) {
   if (!uiWindow) { openUi(); return }
   currentPageId = pageId
   const url = typeof page.url === 'function' ? page.url() : page.url
-  if (contentView && contentView.webContents) {
-    contentView.webContents.loadURL(url)
-  }
+  // iframe 方案:回发 URL 给壳,壳设置 iframe.src(与壳同层)
+  uiWindow.webContents.send('shell:page-url', pageId, url)
   uiWindow.webContents.send('shell:active', pageId)
   if (!opts.silent) showUi()
 }
 
-// ---------- 主窗口 + 内容视图 ----------
+/** 进入应用:切换工作台视图(壳 iframe 加载当前页) */
+function enterApp() {
+  if (uiWindow && !uiWindow.isDestroyed()) {
+    uiWindow.webContents.send('shell:entered')
+    const page = getPage(currentPageId)
+    const url = page ? (typeof page.url === 'function' ? page.url() : page.url) : null
+    if (url) uiWindow.webContents.send('shell:page-url', currentPageId, url)
+  }
+}
+
+/** 返回启动窗口:卸载工作台,回到启动页 */
+function returnToLauncher() {
+  if (uiWindow && !uiWindow.isDestroyed()) {
+    uiWindow.webContents.send('shell:return-launcher')
+  }
+}
+
+// ---------- 主窗口 ----------
 function openUi() {
   const winOpts = IS_MAC
     ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 12 } }
@@ -300,7 +306,6 @@ function openUi() {
     },
   })
 
-  // 壳 UI:本地页面(顶部导航栏),不加载远端
   uiWindow.loadFile(path.join(__dirname, 'renderer', 'shell.html'))
   uiWindow.on('page-title-updated', (e) => e.preventDefault())
   uiWindow.on('closed', () => { uiWindow = null })
@@ -312,87 +317,166 @@ function openUi() {
       if (!hideNotified) {
         hideNotified = true
         try {
-          new Notification({ title: 'DeepSeek Harness 仍在运行', body: '窗口已最小化到系统托盘，右键托盘图标可退出应用。' }).show()
+          new Notification({ title: 'DeepSeek Harness 仍在运行', body: '窗口已隐藏,Dock 点击可恢复。' }).show()
         } catch { /* 忽略 */ }
       }
     }
   })
 
-  // 壳 UI 就绪:发布页面清单 + 创建内容视图
+  // 壳 UI 就绪:发布页面/皮肤/版本(启动页显示)
   uiWindow.webContents.on('did-finish-load', () => {
-    const pages = listPages().map((p) => ({
-      id: p.id, label: p.label,
-    }))
-    let version = '0.1.5'
+    const pages = listPages().map((p) => ({ id: p.id, label: p.label }))
+    let version = '0.2.1'
     try { version = require('./package.json').version || version } catch { /* 忽略 */ }
+    uiWindow.webContents.send('shell:theme', getSkin(currentSkinName).colors)
+    uiWindow.webContents.send('shell:skins', listSkins().map((s) => ({ name: s.name, label: s.label, colors: s.colors, images: s.images, animations: s.animations })), currentSkinName)
     uiWindow.webContents.send('shell:pages', pages, currentPageId, version)
-
-    createContentView()
-    loadCurrentPage()
-  })
-
-  // 窗口缩放:内容视图跟随(顶部栏 NAV_H 始终保留)
-  uiWindow.on('resize', () => {
-    layoutContentView()
+    uiWindow.webContents.send('shell:update-status', { phase: 'idle', text: `当前版本 v${version}` })
   })
 }
 
-function createContentView() {
-  if (contentView) return
-  contentView = new WebContentsView({
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-  uiWindow.contentView.addChildView(contentView)
+// ---------- 皮肤定制(原生菜单 + 对话框,无独立 web 窗口) ----------
 
-  // 内容视图内新窗口/外链处理
-  contentView.webContents.setWindowOpenHandler(({ url }) => {
-    const allowed = [HARNESS_PORT, (readNapCatWebUIConfig()?.port) || 6099]
-    const isLocal = allowed.some((p) => url.startsWith(`http://127.0.0.1:${p}`) || url.startsWith(`http://localhost:${p}`))
-    if (isLocal) return { action: 'allow' }
-    require('node:child_process').spawn(
-      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open',
-      process.platform === 'win32' ? ['/c', 'start', '', url] : [url],
-      { detached: true, stdio: 'ignore' },
-    ).unref()
-    return { action: 'deny' }
-  })
-
-  layoutContentView()
+/** 获取或创建自定义皮肤草稿 */
+function customSkinDraft() {
+  let s = getSkin('custom')
+  if (!s) {
+    s = createSkin({ name: 'custom', label: '自定义' })
+    registerSkin(s)
+  }
+  return s
 }
 
-function layoutContentView() {
-  if (!contentView || !uiWindow) return
-  const [w, h] = uiWindow.getContentSize()
-  contentView.setBounds({ x: 0, y: NAV_H, width: w, height: Math.max(0, h - NAV_H) })
+/** 导入图片到自定义皮肤(原生对话框) */
+function pickSkinImage(slot) {
+  dialog.showOpenDialog({
+    title: slot === 'launcher' ? '选择启动界面图片' : '选择工作台界面图片',
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+  }).then((res) => {
+    if (res.canceled || !res.filePaths?.length) return
+    const file = res.filePaths[0]
+    try {
+      const buf = fs.readFileSync(file)
+      const ext = path.extname(file).toLowerCase().slice(1)
+      const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/png'
+      const dataUri = `data:${mime};base64,${buf.toString('base64')}`
+      const s = customSkinDraft()
+      if (slot === 'launcher') s.images.launcherBg = dataUri
+      else s.images.appBg = dataUri
+      // 实时预览:应用自定义皮肤(若用户已在用自定义)或仅更新草稿
+      applySkin('custom')
+    } catch (err) {
+      dialog.showErrorBox('导入失败', String(err?.message || err))
+    }
+  })
 }
 
-function loadCurrentPage() {
-  const page = getPage(currentPageId)
-  if (!page || !contentView) return
-  const url = typeof page.url === 'function' ? page.url() : page.url
-  contentView.webContents.loadURL(url)
-  if (page.onEnter) page.onEnter(uiWindow)
+/** 移除自定义皮肤图片 */
+function clearSkinImage(slot) {
+  const s = getSkin('custom')
+  if (!s) return
+  if (slot === 'launcher') delete s.images.launcherBg
+  else delete s.images.appBg
+  applySkin('custom')
+}
+
+/** 设置自定义皮肤主色 */
+function setSkinColor(hex) {
+  const s = customSkinDraft()
+  s.colors['--launcher-btn-bg'] = hex
+  s.colors['--launcher-accent'] = hex
+  applySkin('custom')
+}
+
+// ---------- 更新流程 ----------
+function sendUpdateStatus(state) {
+  if (uiWindow && !uiWindow.isDestroyed()) uiWindow.webContents.send('shell:update-status', state)
+}
+async function runUpdate() {
+  sendUpdateStatus({ phase: 'checking', text: '正在检查更新…' })
+  try {
+    const latest = await updater.fetchLatestRelease()
+    if (!latest) { sendUpdateStatus({ phase: 'error', text: '无法获取最新版本(检查网络或 Release)' }); return }
+    const local = updater.localVersion()
+    if (updater.compareVersions(latest.version, local) <= 0) {
+      sendUpdateStatus({ phase: 'uptodate', text: `已是最新版本 v${local}` })
+      return
+    }
+    sendUpdateStatus({ phase: 'found', text: `发现新版本 v${latest.version},开始下载…` })
+    const tmpDir = path.join(app.getPath('temp'), 'dsh-update')
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dmgPath = path.join(tmpDir, latest.dmgName)
+    sendUpdateStatus({ phase: 'downloading', text: `正在下载 v${latest.version}(${(latest.dmgSize / 1024 / 1024).toFixed(0)}MB)…`, percent: 0 })
+    await updater.download(latest.dmgUrl, dmgPath, (p) => {
+      sendUpdateStatus({ phase: 'downloading', text: `正在下载 v${latest.version}… ${p.percent}%`, percent: p.percent })
+    })
+    sendUpdateStatus({ phase: 'installing', text: '正在安装更新…' })
+    const mountPoint = updater.mountDmg(dmgPath)
+    if (!mountPoint) { sendUpdateStatus({ phase: 'error', text: 'DMG 挂载失败' }); return }
+    const result = updater.installApp(mountPoint)
+    updater.unmountDmg(mountPoint)
+    if (!result.ok) { sendUpdateStatus({ phase: 'error', text: `安装失败: ${result.error}` }); return }
+    sendUpdateStatus({ phase: 'done', text: '更新完成,正在重启运行部分…' })
+    setTimeout(() => {
+      stopHarness().then(() => {
+        startHarness().then((ok) => {
+          if (ok && uiWindow && !uiWindow.isDestroyed()) {
+            uiWindow.webContents.send('shell:page-url', 'main', `http://127.0.0.1:${HARNESS_PORT}`)
+            sendUpdateStatus({ phase: 'done', text: `已更新到 v${latest.version}` })
+          }
+        })
+      })
+    }, 800)
+  } catch (e) {
+    sendUpdateStatus({ phase: 'error', text: `更新失败: ${String(e?.message || e)}` })
+  }
 }
 
 // ---------- IPC ----------
-ipcMain.on('win:navigate', (_e, pageId) => {
-  navigateTo(String(pageId), { silent: true })
+ipcMain.on('win:navigate', (_e, pageId) => { navigateTo(String(pageId), { silent: true }) })
+ipcMain.on('win:get-page-url', (_e, pageId) => {
+  const page = getPage(String(pageId))
+  const url = page ? (typeof page.url === 'function' ? page.url() : page.url) : null
+  if (url && uiWindow) uiWindow.webContents.send('shell:page-url', String(pageId), url)
 })
-// 非 macOS：壳 UI 自绘窗口按钮（macOS 走原生交通灯,无需这些）
+ipcMain.on('shell:set-skin', (_e, name) => { applySkin(String(name)) })
+ipcMain.on('shell:open-skin-menu', () => {
+  const hasCustom = !!getSkin('custom')
+  const presetColors = ['#4D6BFE', '#e81123', '#28c840', '#febc2e', '#7c3aed', '#0891b2', '#f472b6', '#84cc16']
+  const menu = Menu.buildFromTemplate([
+    ...listSkins().map((s) => ({ label: s.label, type: 'radio', checked: s.name === currentSkinName, click: () => applySkin(s.name) })),
+    { type: 'separator' },
+    { label: '导入启动界面图片…', click: () => pickSkinImage('launcher') },
+    { label: '导入工作台界面图片…', click: () => pickSkinImage('app') },
+    { label: '移除启动图', enabled: !!(getSkin('custom')?.images?.launcherBg), click: () => clearSkinImage('launcher') },
+    { label: '移除工作台图', enabled: !!(getSkin('custom')?.images?.appBg), click: () => clearSkinImage('app') },
+    { type: 'separator' },
+    {
+      label: '主色基调',
+      submenu: presetColors.map((c) => ({
+        label: c,
+        click: () => setSkinColor(c),
+      })),
+    },
+    { type: 'separator' },
+    { label: '应用自定义皮肤', enabled: hasCustom, click: () => applySkin('custom') },
+    { label: '恢复默认', enabled: hasCustom, click: () => { deleteSkin('custom'); applySkin('default') } },
+    { type: 'separator' },
+    { label: '回到主界面', click: () => navigateTo('main') },
+    { label: '返回启动窗口', click: () => returnToLauncher() },
+  ])
+  menu.popup({ window: uiWindow })
+})
+ipcMain.on('shell:check-update', () => { void runUpdate() })
+ipcMain.on('shell:enter-app', () => { enterApp() })
 ipcMain.on('win:minimize', () => { uiWindow?.minimize() })
-ipcMain.on('win:maximize', () => {
-  if (!uiWindow) return
-  uiWindow.isMaximized() ? uiWindow.unmaximize() : uiWindow.maximize()
-})
+ipcMain.on('win:maximize', () => { uiWindow?.isMaximized() ? uiWindow?.unmaximize() : uiWindow?.maximize() })
 ipcMain.on('win:close', () => { uiWindow?.close() })
 ipcMain.handle('win:isMaximized', () => uiWindow?.isMaximized() ?? false)
 
 app.whenReady().then(async () => {
-  createTray()
+  loadSkinState()
   createSplash()
   const ok = await startHarness()
   splashDone()
@@ -400,12 +484,10 @@ app.whenReady().then(async () => {
   else app.quit()
 })
 
-// 窗口关闭到托盘后不退出；仅真正退出时才停服
 app.on('window-all-closed', () => {
   if (isQuitting) app.quit()
 })
 
-// before-quit:置 isQuitting + await 清理 harness 进程组,再真正退出
 let quitCleanupStarted = false
 app.on('before-quit', (e) => {
   isQuitting = true
