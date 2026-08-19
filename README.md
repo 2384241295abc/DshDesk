@@ -7,13 +7,15 @@
 
 ## ✨ 特性
 
-- **一键启动**：双击 `DeepSeekHarness.exe` → 自动拉起后端 → 直接打开 DeepSeek Harness Web UI
+- **启动页 + 工作台**：启动页展示 logo/版本/检查更新，点击「进入」切换到工作台（可随时返回启动窗口）
+- **一键启动**：双击应用 → 自动拉起后端 → 进入 DeepSeek Harness Web UI
+- **自动更新**：启动页「检查更新」→ 从 GitHub Release 拉取最新版 → 下载 → 自动替换安装
+- **多页面**：主界面（DSH）/ NapCat（WebUI 自动 token 登录），顶栏切换
+- **皮肤系统**：深色/浅色/自定义三套皮肤；自定义支持导入启动图、工作台图、主色基调（原生菜单操作，所见即所得）
 - **内置 Node 24**：自包含运行时，用户无需安装 Node.js
-- **完整环境**：打包了 Harness 全部依赖（链接已物化为真实文件）
-- **无边框窗口**：UI 铺满窗口，右上角内嵌最小化 / 最大化 / 关闭按钮
+- **完整环境**：打包了 Harness 全部依赖
 - **单实例**：重复启动不会拉起多个后端
-- **免管理员**：Windows 安装到 `%LocalAppData%\Programs\DeepSeek Harness`
-- **QQ 远程交互**：内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），配置 NapCat/Lagrange 后即可通过 QQ 向 Harness 发任务并接收回复（见 [QQ 远程交互](#qq-远程交互)）
+- **QQ 远程交互**：内置 OneBot 11 桥（`@dsh-qq/qq-bridge`），配置 NapCat 后可通过 QQ 向 Harness 发任务并接收回复（见 [QQ 远程交互](#qq-远程交互)）
 
 ## 📦 产物
 
@@ -32,9 +34,15 @@
 
 ```
 app/                      Electron 桌面应用源码
-  main.js                 主进程：启动后端、注入窗口控制按钮
-  titlebar-preload.js     preload 脚本（窗口控制 IPC）
-  renderer/               渲染页面（splash 启动页）
+  main.js                 主进程：启动后端、多页面、皮肤、更新、原生菜单
+  theme.js                皮肤接口（colors + images + animations）
+  pages.js                页面注册表（registerPage 接入新页面）
+  updater.js              自动更新（GitHub Release → 下载 DMG → 替换）
+  napcat-auth.js          NapCat WebUI token 读取
+  renderer/               壳 UI（主窗口）
+    shell.html/js        顶栏 + 启动页 + iframe 工作台
+    shell-preload.js     preload（IPC 桥）
+    splash.html          启动加载页
 build/                    构建脚本与产物（跨平台，Node 实现）
   build-harness.js        克隆 deepseek-harness（锁定 commit）+ 注入 QQ 桥插件（独立仓库）+ pnpm 构建
   materialize3.js         node_modules 链接物化（消除 junction/符号链接）
@@ -84,51 +92,55 @@ node build/smoke-test.js --app build/DeepSeekHarnessApp   # 冒烟：产物启�
 # Windows
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DProjectDir=$((Get-Location).Path)" setup.iss
 # macOS
-hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/DeepSeekHarness.app -ov -format UDZO installers/DeepSeekHarness-macOS-$(uname -m).dmg
+hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/DeepSeekHarness.app -ov -format UDZO installers/DeepSeekHarness-macOS-$(uname -m)-<ver>.dmg
 # Linux
-tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux.tar.gz DeepSeekHarness
+tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux-<ver>.tar.gz DeepSeekHarness
 ```
+
+> **注意**：每次代码更新后，需同步改动文件到产物（`build/DeepSeekHarnessApp/.../Resources/app/`）并验证 md5 一致（见 `mist.md` 规则 7），再打包带新版本号的 DMG。
 
 ## 🚀 使用
 
-1. 双击 `DeepSeekHarnessSetup-*.exe` 安装（免管理员，自动建桌面快捷方式）
-2. 双击桌面「DeepSeek Harness」图标
-3. 首次使用：在 Web 界面设置 **DeepSeek API Key**
+1. 安装对应平台产物（macOS 双击 `.dmg` 拖入 Applications）
+2. 打开应用 → 启动页显示（logo/版本/检查更新/进入）
+3. 首次使用：点「进入」→ 在 Web 界面设置 **DeepSeek API Key**
+4. 顶栏齿轮 = 设置（皮肤切换/定制、回到主界面、返回启动窗口）
 
 ## ⚠️ 注意
 
 - 用户数据存放在 `~/.dsh`（与安装目录分离），卸载后保留
-- 服务监听 `http://127.0.0.1:3080`；**关闭窗口仅隐藏到托盘，服务继续运行**，托盘「退出」才真正停服
+- 服务监听 `http://127.0.0.1:3080`
+- **关闭窗口 = 隐藏**，Dock 点击恢复；Cmd+Q / Dock 右键退出才真正停服
+- 启动页「检查更新」从 GitHub Release 拉取最新 DMG（需网络；Release 需有对应版本资产）
 
 ## QQ 远程交互
 
-> QQ 桥插件（`@dsh-qq/qq-bridge`）已独立成单独项目，见私有仓库 **WanShengling**（本地 `~/Documents/DshDesktop/dsh-qq-bridge/`），本仓库通过构建脚本从独立仓库注入。配置 NapCat/Lagrange 后即可通过 QQ 向 Harness 发任务并接收回复。
+> QQ 桥插件（`@dsh-qq/qq-bridge`）已独立成单独项目，见私有仓库 **WanShengling**（本地 `~/Documents/DshDesktop/dsh-qq-bridge/`），本仓库通过构建脚本从独立仓库注入。配置 NapCat 后即可通过 QQ 向 Harness 发任务并接收回复。
 
-### 部署 NapCat（一次性准备，约 10 分钟）
+### 部署 NapCat（macOS 注入版，当前运行方式）
+
+> macOS 上 NapCat Shell 版无法独立运行（`wrapper.node` 是 QQ 的 Electron 原生模块，纯 Node 加载崩溃；官方仅 Win/Linux 支持 Shell）。macOS 唯一可行路径 = **注入/Framework 方式**，详见 `napcat/README.md`。
 
 1. **准备一个 QQ 号**（建议小号），并在该 QQ 登录的设备上完成扫码/验证
-2. **安装 NapCat**（Shell 包，跨平台，macOS/Windows/Linux 通用）：
-   - 到 [NapCat 仓库 Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载 `NapCat.Shell.zip`（注意：**无 `brew cask`**，`brew install --cask napcat` 不存在，此前的指引有误）
-   - 解压后进入目录，用系统 Node.js（≥22）运行 `node napcat.mjs`（无需安装/注入任何东西）
-3. **启动并登录**：`node napcat.mjs` → 终端出现二维码 → 用准备好的 QQ 号扫码登录
-4. **开启正向 WebSocket**：NapCat 设置 → 网络配置 → 新建 **WebSocket 服务器**（正向）→ 端口填 `6700`（默认即可）→ 可选设置 access token → 保存
-5. **记录地址**：`ws://127.0.0.1:6700`（若改了端口/token 按实际记录）
+2. **注入 NapCat 到 QQ 2.app**：运行 `~/Downloads/NapCatQQ-4.18.19/macos-install.sh`（修改 `/Applications/QQ 2.app` 的 `package.json` main 指向 NapCat 加载器）
+3. **启动 QQ 2.app**：`open -a QQ 2.app` → NapCat 随 QQ 启动，正向 WS 监听 `127.0.0.1:3001`（token 见配置）
+4. **恢复原版**：`cp "/Applications/QQ 2.app/Contents/Resources/app/package.json.bak" "/Applications/QQ 2.app/Contents/Resources/app/package.json"`
+
+> Windows/Linux 可用 NapCat Shell 版（`node napcat.mjs` 扫码登录，WebUI 开正向 WS），桥地址/端口按实际配置。
 
 ### 连接桥
 
 1. 设置桥的 WS 地址（任选其一）：
-   - **环境变量（推荐）**：桌面壳透传 `DSH_QQ_ONEBOT_WS=ws://127.0.0.1:6700`、`DSH_QQ_ONEBOT_TOKEN=<token>`
+   - **环境变量（推荐）**：桌面壳透传 `DSH_QQ_ONEBOT_WS=ws://127.0.0.1:3001`、`DSH_QQ_ONEBOT_TOKEN=<token>`
    - **profile 补丁**：编辑 `~/.dsh/profiles/web/cordis.patch.yml`，覆盖 `qq-bridge` 行的 `onebotWs`/`onebotToken`
-   - 不配置时使用默认值 `ws://127.0.0.1:6700`（与 NapCat 默认一致）
-2. 重启应用（或等待 profile 热重载）后，向该 QQ 号发消息即触发 Harness 会话：私聊与每个群各自映射独立会话，回复经 QQ 回传
+2. 重启应用后，向该 QQ 号发消息即触发 Harness 会话：私聊与每个群各自映射独立会话，回复经 QQ 回传
 
 ### 行为说明
 
 - 会话与 Web UI **完全共享**（同一 harness 实例），QQ 里发起/继续的会话在浏览器中可见、可续
-- 回复按步骤聚合后发送；回合结束（含错误）会附加状态说明
-- 模型发起的**提问/审批**在 QQ 端默认自动拒绝并提示（`autoAnswer: reject`），如需自动放行改为 `allow-once`（仅限可信场景）
-
-> MVP 范围：发任务 + 流式回复。更丰富的审批交互与命令面板为后续迭代项。
+- 群聊有能量/冷却节奏（不是每条都回）、人设（万生玲）、图片识别、文件记忆（chatlog/profiles）
+- 私聊以 `!` 开头走**工作指令**（真实 DSH 代理，独立会话）；其余走人设
+- 模型发起的**提问/审批**在 QQ 端默认自动拒绝并提示（`autoAnswer: reject`）
 
 ## 📄 许可
 
