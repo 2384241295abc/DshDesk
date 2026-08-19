@@ -122,7 +122,7 @@ app.whenReady → loadSkinState() → createSplash() → startHarness()
 node build/assemble.js build/DeepSeekHarnessApp   # 约 3-5 分钟
 hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/DeepSeekHarness.app -ov -format UDZO installers/DeepSeekHarness-macOS-<arch>-<ver>.dmg
 ```
-- 🔴 **改插件后必须同步三处副本**(见根 HANDOFF §3.2):standalone + build 产物两处 + resources/harness,rsync --delete。否则 healProfiles 拉回旧版。
+- 🔴 **改插件后同步副本**(见根 HANDOFF §3.2):跑 `node build/sync-plugin.js` 一键同步 `dsh-qq-bridge/plugin` → resources/harness + build/packages 两处内嵌副本(rm+cp,与主仓库 HEAD 完全一致);`build/DeepSeekHarnessApp` 是 stale 可再生产物,已被删除,由 `node build/assemble.js` 从 resources/harness 重新生成,不会引入旧插件。否则 healProfiles 拉回旧版。
 - 冒烟:`node build/smoke-test.js --app ...`(需 danger-full-access,修 ~/.dsh symlink)。
 - CI:push `v*` tag 触发;三平台矩阵上传 artifact → 单一 release 作业收口(防竞态,c35da2b)。
 - 发布:`git tag v0.2.x && git push origin v0.2.x`。
