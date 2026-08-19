@@ -14,7 +14,7 @@
 |----|-----|
 | 仓库 | `https://github.com/2384241295abc/DshDesk.git`(公开;remote 名为 `DshDesk`,注意大小写) |
 | 本地路径 | `/Users/fuyunhuancheng/Documents/DshDesktop/deepseek-harness-desktop/` |
-| 当前版本 | **v0.2.20**(package.json `version`;CI #21 发布中;本地 build 产物 0.2.19) |
+| 当前版本 | **v0.2.22**(package.json `version`;CI #22(v0.2.22)发布中,已推送全部提交) |
 | 上游 harness | deepseek-harness 锁定 commit(`HARNESS_SOURCE` 本地源拷贝,构建时注入 QQ 桥插件) |
 | 架构 | Electron 37 + **同层 iframe** 壳(顶栏/启动页/工作台都在 shell.html 一个 web 内容里) |
 
@@ -155,9 +155,12 @@ hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/D
    - **v0.2.18**:修复 **custom 皮肤注册 bug** —— theme.getSkin(name) 对未注册皮肤返回 defaultSkin(真值兜底),customSkinDraft 用 if(!s) 永不创建 → 配置落到 defaultSkin、skin.json 恒写 default。修复:theme.js 新增 hasSkin(),customSkinDraft/saveCustomSkin/clearSkinImage 改用
    - **v0.2.19**:**复制重构根治** —— sandbox+permission handler 均无效(Chromium iframe async clipboard 权限不可靠),改为注入 polyfill 覆盖 navigator.clipboard.writeText → postMessage → 壳 → IPC clipboard:write → 主进程 clipboard.writeText。**更新按钮反馈修复**:uptodate 显示"已是最新"+disabled、idle 重置文案、error 可重试
    - **v0.2.20(未发布,CI #21 进行中)**:修复 **CI 发布失败根因** —— build-harness.js 插件路径 bug(path.dirname(proj) 少一层,插件源解析失败)+ CI 无 dsh-qq-bridge 仓库(WanShengling 公开,workflow 新增匿名克隆步骤)
+   - **v0.2.21**:Windows 系统托盘(app/tray.js:Tray+菜单,仅 win32;macOS 走 Dock)
+   - **v0.2.22**:updater Windows 分支(按平台选 DMG/exe 资产 + installWindowsExe 静默)+ README Windows NapCat 部署小节 + **smoke 原生模块探针改指顶层 @deepseek-ai 副本**(修复瘦身后 CI 冒烟失败根因;本地全量产物冒烟+QQ-E2E 全绿)
    - **新增 build/make-dmg.js**:统一打包+挂载 md5 校验+通过后才清理旧版(防误删;规则 10 血泪教训:手动 rm 曾误清 installers)
-   - **版本**:0.2.11 → 0.2.20,installers 通常仅留最新 DMG
-   - **⚠️ 已知**:CI v0.1.3 后一直红(v0.2.20 起修),远端 Release 停在 v0.1.3 → 更新按钮对本地 0.2.x 恒显示"已是最新";待 CI #21 发布 v0.2.20 后,旧版可自动更新
+   - **版本**:0.2.11 → 0.2.22,installers 通常仅留最新 DMG
+   - **⚠️ 已知**:CI v0.1.3 后一直红(v0.2.20/0.2.22 修),远端 Release 停在 v0.1.3 → 更新按钮对本地 0.2.x 恒显示"已是最新";待 CI #22(v0.2.22)发布成功后旧版可自动更新
+   - **✅ 2026-08-20 Windows 移植准备**:①托盘(v0.2.21)②updater Windows 分支(v0.2.22)③NapCat Windows 文档 ④窗口/进程 win32 分支已有 ⑤CI 冒烟修复(smoke 探针→顶层副本,本地全量产物模拟 CI 全绿)。待 CI #22 验证发布链路。
 
 ---
 
