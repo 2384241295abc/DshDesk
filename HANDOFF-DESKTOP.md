@@ -14,7 +14,7 @@
 |----|-----|
 | 仓库 | `https://github.com/2384241295abc/DshDesk.git`(公开;remote 名为 `DshDesk`,注意大小写) |
 | 本地路径 | `/Users/fuyunhuancheng/Documents/DshDesktop/deepseek-harness-desktop/` |
-| 当前版本 | **v0.2.11**(package.json `version`;main.js 启动页兜底硬编码 `0.2.1` 会被 package.json 覆盖) |
+| 当前版本 | **v0.2.20**(package.json `version`;CI #21 发布中;本地 build 产物 0.2.19) |
 | 上游 harness | deepseek-harness 锁定 commit(`HARNESS_SOURCE` 本地源拷贝,构建时注入 QQ 桥插件) |
 | 架构 | Electron 37 + **同层 iframe** 壳(顶栏/启动页/工作台都在 shell.html 一个 web 内容里) |
 
@@ -145,6 +145,19 @@ hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/D
 4. **重启优化**:`.mjs` 改动需用户手动重启 3080(restart-3080.sh 已废弃),后续可做壳内"重启运行部分"按钮(更新流程已有 stopHarness/startHarness 现成逻辑)。
 5. **验证清单**:改壳后必查——①顶栏可点(iframe 不遮挡)②皮肤图片不空白(img-src data:)③iframe 能加载(frame-src)④nav-slot 不纵向堆叠(display:flex)⑤齿轮 pointerdown 不重复触发。
 6. **✅ v0.2.11 已落地**:①**额度壳内页面**(pages.js 支持无 url 壳内视图 → balance 页与主界面/NapCat 并列顶部栏;shell.html `#balance-view` 居中卡片;shell.js `switchPage()` 三处联动(entered/active/page-url);数据走 `balance:get` IPC,密钥不落渲染器)。②**assemble 增量模式**:`.assemble-fingerprint.json` 指纹 → 未变 3 秒/仅 app 变 ~1 分钟/`--full` 全量;⚠️ 修复增量初版 appResDir 误指 Resources 顶层导致结构污染(固定 `Contents/Resources/app`)。③**产物瘦身**:harness rsync 排除 `packages/*/*/node_modules` → 4.5GB→3.0GB。④installers 已清旧仅留 0.2.11。**待办**:0.2.12 DMG 未打包、git 未提交(未决由用户决定)。
+7. **✅ v0.2.12→v0.2.19 改动链(2026-08-20)**:
+   - **v0.2.12**:额度页独立顶部栏(0.2.11 的延续打包)+ assemble 增量模式 + 产物瘦身
+   - **v0.2.13**:修复**导航双触发致 iframe 反复重载崩溃** —— navigateTo 发 page-url+active 双事件,onActive 又调 switchPage→getPageUrl 回发,iframe 反复重载 DSH SPA → Chromium 崩溃。修复:setFrameUrl 同 URL 去重(lastFrameUrl)+ 职责分离(onActive 仅显示切换,iframe 加载唯一由 onPageUrl)+ 删除冗余 win:get-page-url IPC + 死代码 loadPageIntoFrame
+   - **v0.2.14**:custom 皮肤持久化 —— saveCustomSkin/loadCustomSkin 到 userData/custom-skin.json(主色+launcherBg+appBg),启动 loadCustomSkin 先于 loadSkinState
+   - **v0.2.15**:iframe sandbox 加 allow-clipboard-read/write(复制问题第一轮尝试,未根治)
+   - **v0.2.16**:主进程放行剪贴板权限 —— 首版用 web-contents-created + contents.setPermissionRequestHandler,**启动崩溃**(splash 窗口的 webContents 无此方法);改 session.defaultSession.setPermissionRequestHandler
+   - **v0.2.17**:session 级权限处理器(修复 0.2.16 崩溃);make-dmg.js 动态取挂载点(修复固定卷路径验证到旧版)
+   - **v0.2.18**:修复 **custom 皮肤注册 bug** —— theme.getSkin(name) 对未注册皮肤返回 defaultSkin(真值兜底),customSkinDraft 用 if(!s) 永不创建 → 配置落到 defaultSkin、skin.json 恒写 default。修复:theme.js 新增 hasSkin(),customSkinDraft/saveCustomSkin/clearSkinImage 改用
+   - **v0.2.19**:**复制重构根治** —— sandbox+permission handler 均无效(Chromium iframe async clipboard 权限不可靠),改为注入 polyfill 覆盖 navigator.clipboard.writeText → postMessage → 壳 → IPC clipboard:write → 主进程 clipboard.writeText。**更新按钮反馈修复**:uptodate 显示"已是最新"+disabled、idle 重置文案、error 可重试
+   - **v0.2.20(未发布,CI #21 进行中)**:修复 **CI 发布失败根因** —— build-harness.js 插件路径 bug(path.dirname(proj) 少一层,插件源解析失败)+ CI 无 dsh-qq-bridge 仓库(WanShengling 公开,workflow 新增匿名克隆步骤)
+   - **新增 build/make-dmg.js**:统一打包+挂载 md5 校验+通过后才清理旧版(防误删;规则 10 血泪教训:手动 rm 曾误清 installers)
+   - **版本**:0.2.11 → 0.2.20,installers 通常仅留最新 DMG
+   - **⚠️ 已知**:CI v0.1.3 后一直红(v0.2.20 起修),远端 Release 停在 v0.1.3 → 更新按钮对本地 0.2.x 恒显示"已是最新";待 CI #21 发布 v0.2.20 后,旧版可自动更新
 
 ---
 
