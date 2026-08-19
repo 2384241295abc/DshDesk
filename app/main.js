@@ -623,6 +623,18 @@ ipcMain.on('win:maximize', () => { uiWindow?.isMaximized() ? uiWindow?.unmaximiz
 ipcMain.on('win:close', () => { uiWindow?.close() })
 ipcMain.handle('win:isMaximized', () => uiWindow?.isMaximized() ?? false)
 
+// 放行 iframe(DSH/NapCat)的剪贴板权限:Chromium 权限模型默认拒绝 iframe 的
+// Async Clipboard API,不设处理器则 navigator.clipboard.writeText 静默失败 → 复制无效。
+app.on('web-contents-created', (_e, contents) => {
+  contents.setPermissionRequestHandler((_wc, permission, callback) => {
+    const allow = [
+      'clipboard-sanitized-write', 'clipboard-read',
+      'clipboard-write',           // 兼容旧名
+    ].includes(permission)
+    callback(allow)
+  })
+})
+
 app.whenReady().then(async () => {
   loadCustomSkin()   // 先恢复自定义皮肤(主色/图片),再读当前皮肤名
   loadSkinState()
