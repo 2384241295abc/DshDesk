@@ -187,8 +187,13 @@ async function qqE2E(baseEnv) {
 
   // mock OneBot（用系统 node；ws 从产物内解析）；双消息验证队列（连续消息回复不丢）
   // 插件已独立到 WanShengling 仓库（dsh-qq-bridge/），mock 脚本随独立仓库维护（DshDesk 内不再有 qq-bridge/ 副本）
-  const mockPath = path.join(proj, '..', 'dsh-qq-bridge', 'test', 'mock-onebot.mjs')
-  if (!fs.existsSync(mockPath)) fail(`mock OneBot 脚本缺失: ${mockPath}（需检出 dsh-qq-bridge 仓库）`)
+  // 路径: CI 克隆到 proj/dsh-qq-bridge;本地是 proj/../dsh-qq-bridge —— 两处都探测
+  const mockCandidates = [
+    path.join(proj, 'dsh-qq-bridge', 'test', 'mock-onebot.mjs'),      // CI 布局(workflow clone 到仓库内)
+    path.join(proj, '..', 'dsh-qq-bridge', 'test', 'mock-onebot.mjs'), // 本地布局(DshDesktop 平级)
+  ]
+  const mockPath = mockCandidates.find((p) => fs.existsSync(p))
+  if (!mockPath) fail(`mock OneBot 脚本缺失: ${mockCandidates.join(' 或 ')}（需检出 dsh-qq-bridge 仓库）`)
   const wsProbe = [path.join(harness, 'node_modules', '@deepseek-ai', 'dsh-client-connection', 'node_modules', 'ws'),
     path.join(harness, 'node_modules', 'ws'),
     path.join(harness, 'packages', 'host', 'webserver', 'node_modules', 'ws'),
