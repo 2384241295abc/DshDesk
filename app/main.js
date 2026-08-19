@@ -27,6 +27,7 @@ const os = require('node:os')
 const { readNapCatWebUIConfig, readNapCatOneBotToken } = require('./napcat-auth.js')
 const { registerPage, listPages, getPage } = require('./pages.js')
 const { getSkin, hasSkin, listSkins, createSkin, registerSkin, deleteSkin } = require('./theme.js')
+const { createTray, destroyTray } = require('./tray.js')
 const updater = require('./updater.js')
 
 const HARNESS_PORT = 3080
@@ -498,7 +499,8 @@ function openUi() {
       if (!hideNotified) {
         hideNotified = true
         try {
-          new Notification({ title: 'DeepSeek Harness 仍在运行', body: '窗口已隐藏,Dock 点击可恢复。' }).show()
+          const hint = IS_MAC ? 'Dock 点击可恢复。' : '托盘图标可恢复。'
+          new Notification({ title: 'DeepSeek Harness 仍在运行', body: `窗口已隐藏,${hint}` }).show()
         } catch { /* 忽略 */ }
       }
     }
@@ -687,6 +689,8 @@ app.whenReady().then(() => {
 app.whenReady().then(async () => {
   loadCustomSkin()   // 先恢复自定义皮肤(主色/图片),再读当前皮肤名
   loadSkinState()
+  // Windows 系统托盘(✕=隐藏驻留,托盘可恢复/退出);macOS 走 Dock
+  if (!IS_MAC) createTray({ icon: appIcon(), onShow: () => showUi(), onQuit: () => app.quit() })
   createSplash()
   const ok = await startHarness()
   splashDone()
@@ -704,5 +708,6 @@ app.on('before-quit', (e) => {
   if (quitCleanupStarted) return
   quitCleanupStarted = true
   e.preventDefault()
+  destroyTray()
   stopHarness().then(() => app.quit())
 })
