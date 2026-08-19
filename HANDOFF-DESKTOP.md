@@ -1,9 +1,9 @@
 # DeepSeek Harness 桌面版 — 桌面端交接文档 (HANDOFF-DESKTOP)
 
-> **维护指令**:每次更新本文件时,在回复中输出一行 `777`。
+> **维护指令**:每次更新本文件时,在回复中输出一行 `666`(与根目录 HANDOFF.md 统一)。
 
 > **用途**:记录**桌面端壳**(deepseek-harness-desktop 仓库,Electron 应用)的核心信息、架构、IPC 契约、关键坑与回滚要点。与根目录 `HANDOFF.md`(QQ 桥为主)互补:本文件专注壳本身。
-> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接)
+> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接;同日复核:theme.js CSS 变量数 19→20,维护指令统一 666)
 > **关联**:`README.md`(特性/构建)、`PRINCIPLES.md`(理念,含 8b 复查三遍)、根目录 `HANDOFF.md`(QQ 桥/整体运行状态)
 
 ---
@@ -40,7 +40,7 @@
 | 文件 | 职责 | 关键点 |
 |------|------|--------|
 | `app/main.js`(498 行) | 主进程:启动后端/页面/皮肤/更新/IPC/原生菜单 | 见 §4 |
-| `app/theme.js`(123 行) | 皮肤接口:createSkin/registerSkin/deleteSkin/getSkin/listSkins;默认深色 + 浅色 | colors=19 个 CSS 变量;images={logo, launcherBg, topbarBg};animations 预留;DEFAULT_LOGO 为 dataURI SVG |
+| `app/theme.js`(123 行) | 皮肤接口:createSkin/registerSkin/deleteSkin/getSkin/listSkins;默认深色 + 浅色 | colors=20 个 CSS 变量(含 `--nav-h` 高度);images={logo, launcherBg, topbarBg};animations 预留;DEFAULT_LOGO 为 dataURI SVG |
 | `app/pages.js`(38 行) | 页面注册表:registerPage/listPages/getPage | 页面 url 支持函数(惰性求值,NapCat token 即此) |
 | `app/updater.js`(157 行) | 自动更新:fetchLatestRelease/download/mountDmg/installApp | 仅查 **macOS-arm64 DMG** 资产;REPO=`2384241295abc/DshDesk` |
 | `app/napcat-auth.js`(41 行) | 读 NapCat WebUI token | 读 `webui.json`(port 6099,token) |
@@ -99,7 +99,7 @@ app.whenReady → loadSkinState() → createSplash() → startHarness()
 | 壳→主 | `shell:check-update` | — |
 | 壳→主 | `shell:enter-app` | — |
 | 壳→主 | `win:minimize/maximize/close`、`win:isMaximized`(handle) | — |
-| 主→壳 | `shell:theme` | colors(19 CSS 变量) |
+| 主→壳 | `shell:theme` | colors(20 CSS 变量) |
 | 主→壳 | `shell:skins` | 全量 skins + 当前名 |
 | 主→壳 | `shell:pages` | pages + active + version |
 | 主→壳 | `shell:active` | pageId |
