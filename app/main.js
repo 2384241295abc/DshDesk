@@ -254,6 +254,34 @@ function showUi() {
 
 // ---------- 皮肤状态 ----------
 function skinStateFile() { return path.join(app.getPath('userData'), 'skin.json') }
+function customSkinFile() { return path.join(app.getPath('userData'), 'custom-skin.json') }
+/** 持久化 custom 皮肤(主色 + 图片 dataURI)—— 重启后恢复,无需重新配置 */
+function saveCustomSkin() {
+  const s = getSkin('custom')
+  if (!s) { return }
+  try {
+    fs.writeFileSync(customSkinFile(), JSON.stringify({
+      accent: s.colors['--launcher-accent'] || '#4D6BFE',
+      launcherBg: s.images.launcherBg || null,
+      appBg: s.images.appBg || null,
+    }))
+  } catch { /* 忽略 */ }
+}
+/** 启动时从磁盘恢复 custom 皮肤 */
+function loadCustomSkin() {
+  try {
+    const d = JSON.parse(fs.readFileSync(customSkinFile(), 'utf8'))
+    if (!d) return
+    const s = createSkin({ name: 'custom', label: '自定义' })
+    if (d.accent) {
+      s.colors['--launcher-btn-bg'] = d.accent
+      s.colors['--launcher-accent'] = d.accent
+    }
+    if (d.launcherBg) s.images.launcherBg = d.launcherBg
+    if (d.appBg) s.images.appBg = d.appBg
+    registerSkin(s)
+  } catch { /* 无自定义皮肤 */ }
+}
 function loadSkinState() {
   try {
     const s = JSON.parse(fs.readFileSync(skinStateFile(), 'utf8'))
@@ -477,6 +505,7 @@ function pickSkinImage(slot) {
       const s = customSkinDraft()
       if (slot === 'launcher') s.images.launcherBg = dataUri
       else s.images.appBg = dataUri
+      saveCustomSkin()
       // 实时预览:应用自定义皮肤(若用户已在用自定义)或仅更新草稿
       applySkin('custom')
     } catch (err) {
@@ -491,6 +520,7 @@ function clearSkinImage(slot) {
   if (!s) return
   if (slot === 'launcher') delete s.images.launcherBg
   else delete s.images.appBg
+  saveCustomSkin()
   applySkin('custom')
 }
 
@@ -499,6 +529,7 @@ function setSkinColor(hex) {
   const s = customSkinDraft()
   s.colors['--launcher-btn-bg'] = hex
   s.colors['--launcher-accent'] = hex
+  saveCustomSkin()
   applySkin('custom')
 }
 
@@ -574,7 +605,11 @@ ipcMain.on('shell:open-skin-menu', () => {
     },
     { type: 'separator' },
     { label: '应用自定义皮肤', enabled: hasCustom, click: () => applySkin('custom') },
-    { label: '恢复默认', enabled: hasCustom, click: () => { deleteSkin('custom'); applySkin('default') } },
+    { label: '恢复默认', enabled: hasCustom, click: () => {
+      deleteSkin('custom')
+      try { fs.rmSync(customSkinFile(), { force: true }) } catch { /* 忽略 */ }
+      applySkin('default')
+    } },
     { type: 'separator' },
     { label: '回到主界面', click: () => navigateTo('main') },
     { label: '返回启动窗口', click: () => returnToLauncher() },
@@ -589,6 +624,7 @@ ipcMain.on('win:close', () => { uiWindow?.close() })
 ipcMain.handle('win:isMaximized', () => uiWindow?.isMaximized() ?? false)
 
 app.whenReady().then(async () => {
+  loadCustomSkin()   // 先恢复自定义皮肤(主色/图片),再读当前皮肤名
   loadSkinState()
   createSplash()
   const ok = await startHarness()
