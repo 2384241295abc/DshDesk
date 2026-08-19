@@ -151,6 +151,13 @@ function init() {
   initWinControls()
   initLauncher()
   initBalanceView()
+  // 接收 iframe 内 DSH 的复制请求(polyfill postMessage → 壳 IPC → 主进程剪贴板)
+  window.addEventListener('message', (e) => {
+    const d = e.data
+    if (d && d.__dshCopy && typeof d.text === 'string') {
+      if (window.dshShell?.copyText) window.dshShell.copyText(d.text)
+    }
+  })
 }
 
 // ---------- 启动页状态(主进程推送) ----------
@@ -166,7 +173,15 @@ if (window.dshShell?.onUpdateStatus) {
     } else if (state.phase === 'error' || state.phase === 'uptodate' || state.phase === 'done') {
       if (btn) btn.disabled = false
     }
-    if (state.phase === 'done' && btn) {
+    if (state.phase === 'idle' && btn) {
+      btn.textContent = '检查更新'   // 回到启动页时重置(主进程 did-finish-load 推 idle)
+      btn.disabled = false
+    } else if (state.phase === 'uptodate' && btn) {
+      btn.textContent = '已是最新'
+      btn.disabled = true
+    } else if (state.phase === 'error' && btn) {
+      btn.textContent = '检查更新'   // 失败后恢复可重试
+    } else if (state.phase === 'done' && btn) {
       btn.textContent = '已是最新'
       btn.disabled = true
     }

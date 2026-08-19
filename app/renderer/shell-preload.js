@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('dshShell', {
   // 额度查询(主进程读凭据调 DeepSeek API,密钥不落渲染器)
   getBalance: () => ipcRenderer.invoke('balance:get'),
   openRecharge: () => ipcRenderer.send('balance:open-recharge'),
+  // 复制:iframe 内 DSH 复制按钮经 postMessage 转交主进程写剪贴板
+  copyText: (text) => ipcRenderer.send('clipboard:write', text),
   // 壳 → 主进程:iframe 加载完成(触发皮肤注入)
   notifyFrameLoaded: () => ipcRenderer.send('frame:loaded'),
   // 主进程 → 壳:页面 URL(供 iframe 加载)

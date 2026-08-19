@@ -16,7 +16,7 @@
 // 皮肤接口 theme.js / 页面接口 pages.js / 更新 updater.js / 皮肤定制(原生菜单)
 // ============================================================================
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, Notification, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, Notification, shell, clipboard } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const http = require('node:http')
 const net = require('node:net')
@@ -376,6 +376,46 @@ function injectDsThemeIntoFrames() {
   skinBridgeLog(`injectDsThemeIntoFrames: frames=${mainFrame.frames.length} matched=${injected} skin=${currentSkinName}`)
 }
 
+// ---------- 复制 polyfill(注入 iframe,绕开 Chromium 剪贴板权限) ----------
+// DSH 前端复制走 navigator.clipboard.writeText,Chromium 权限模型在 Electron
+// iframe 里放行不可靠(sandbox + permission handler 均试过无效)。改为注入
+// polyfill:把 writeText 替换为 postMessage → 壳 → IPC → 主进程 clipboard.writeText。
+function injectClipboardPolyfill() {
+  if (!uiWindow || uiWindow.isDestroyed()) return
+  const mainFrame = uiWindow.webContents.mainFrame
+  if (!mainFrame) return
+  const code = `(() => {
+    if (window.__dshClipboardPolyfilled) return true
+    window.__dshClipboardPolyfilled = true
+    const native = navigator.clipboard && navigator.clipboard.writeText
+    const writeViaShell = (text) => {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ __dshCopy: true, text: String(text) }, '*')
+          return Promise.resolve(true)
+        }
+      } catch (e) { /* 忽略 */ }
+      if (typeof native === 'function') return native.call(navigator.clipboard, text)
+      return Promise.resolve(false)
+    }
+    try {
+      if (navigator.clipboard) navigator.clipboard.writeText = writeViaShell
+      else {
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: writeViaShell }, configurable: true })
+      }
+    } catch (e) {
+      // 不可覆盖时回退原生(至少快捷键复制不受影响)
+      return false
+    }
+    return true
+  })()`
+  for (const frame of mainFrame.frames) {
+    if (frame.url && frame.url.includes('127.0.0.1:3080')) {
+      frame.executeJavaScript(code).catch(() => { /* 页面未就绪 */ })
+    }
+  }
+}
+
 // ---------- 页面注册 ----------
 function registerBuiltinPages() {
   registerPage({ id: 'main', label: '主界面', url: `http://127.0.0.1:${HARNESS_PORT}` })
@@ -580,7 +620,11 @@ ipcMain.handle('balance:get', () => fetchDeepSeekBalance())
 ipcMain.on('balance:open-recharge', () => {
   shell.openExternal(DEEPSEEK_RECHARGE_URL).catch(() => { /* 忽略 */ })
 })
-ipcMain.on('frame:loaded', () => injectDsThemeIntoFrames())
+// 复制:iframe 内 DSH 经 polyfill → 壳 postMessage → IPC → 主进程写剪贴板(绕开 Chromium 权限)
+ipcMain.on('clipboard:write', (_e, text) => {
+  try { clipboard.writeText(String(text ?? '')) } catch { /* 忽略 */ }
+})
+ipcMain.on('frame:loaded', () => { injectDsThemeIntoFrames(); injectClipboardPolyfill() })
 ipcMain.on('win:navigate', (_e, pageId) => { navigateTo(String(pageId), { silent: true }) })
 ipcMain.on('shell:set-skin', (_e, name) => { applySkin(String(name)) })
 ipcMain.on('shell:open-skin-menu', () => {
