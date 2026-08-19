@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld('dshShell', {
   onReturnLauncher: (cb) => ipcRenderer.on('shell:return-launcher', () => cb()),
   // 壳 → 主进程:切换页面 / 窗口控制 / 皮肤 / 启动页
   navigate: (pageId) => ipcRenderer.send('win:navigate', pageId),
-  getPageUrl: (pageId) => ipcRenderer.send('win:get-page-url', pageId),
   setSkin: (name) => ipcRenderer.send('shell:set-skin', name),
   openSkinMenu: () => ipcRenderer.send('shell:open-skin-menu'),
   checkUpdate: () => ipcRenderer.send('shell:check-update'),

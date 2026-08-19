@@ -553,11 +553,6 @@ ipcMain.on('balance:open-recharge', () => {
 })
 ipcMain.on('frame:loaded', () => injectDsThemeIntoFrames())
 ipcMain.on('win:navigate', (_e, pageId) => { navigateTo(String(pageId), { silent: true }) })
-ipcMain.on('win:get-page-url', (_e, pageId) => {
-  const page = getPage(String(pageId))
-  const url = page ? (typeof page.url === 'function' ? page.url() : page.url) : null
-  if (url && uiWindow) uiWindow.webContents.send('shell:page-url', String(pageId), url)
-})
 ipcMain.on('shell:set-skin', (_e, name) => { applySkin(String(name)) })
 ipcMain.on('shell:open-skin-menu', () => {
   const hasCustom = !!getSkin('custom')

@@ -25,20 +25,12 @@ const LAYOUT = {
 let PAGES = []
 let ACTIVE = 'main'
 
-// 当前 iframe URL 解析(页面 url 可能由主进程提供,此处按页面 id 加载)
-function loadPageIntoFrame(pageId) {
-  const frame = document.getElementById('app-frame')
-  if (!frame) return
-  // 页面 URL 由主进程经 shell:pages 提供(url 函数在主进程),此处用固定映射或由主进程推送
-  // 简化:壳请求主进程给 URL → 主进程回发;或主进程直接把当前页 URL 发来
-  if (window.dshShell?.getPageUrl) {
-    window.dshShell.getPageUrl(pageId)
-  }
-}
-// 主进程推送页面 URL 后,设 iframe.src
+// 主进程推送页面 URL 后,设 iframe.src;同 URL 去重(防导航事件双触发导致 iframe 反复重载)
+let lastFrameUrl = null
 function setFrameUrl(url) {
   const frame = document.getElementById('app-frame')
-  if (frame && url) {
+  if (frame && url && url !== lastFrameUrl) {
+    lastFrameUrl = url
     frame.onload = () => { if (window.dshShell?.notifyFrameLoaded) window.dshShell.notifyFrameLoaded() }
     frame.src = url
   }
@@ -236,6 +228,8 @@ if (window.dshShell?.onActive) {
   window.dshShell.onActive((pageId) => {
     ACTIVE = pageId
     renderNav()
+    // 只做视图显示切换(iframe 页的加载由 onPageUrl 完成,这里不触发 getPageUrl,
+    // 防止 navigateTo 的 page-url + active 双事件导致 iframe 重复加载)
     if (document.body.classList.contains('entered')) switchPage(pageId)
   })
 }
@@ -245,6 +239,7 @@ function showLauncher() {
   // 卸载工作台
   const frame = document.getElementById('app-frame')
   if (frame) frame.src = 'about:blank'
+  lastFrameUrl = null   // 重置去重标记:再次进入时需重新加载
   const appView = document.getElementById('app-view')
   if (appView) appView.style.display = 'none'
   const balView = document.getElementById('balance-view')
@@ -262,7 +257,8 @@ function showWorkspace() {
   switchPage(ACTIVE)   // 显示当前页(iframe 或壳内视图)
 }
 
-// 按页面 id 切换工作台内容:壳内视图(balance)显示对应视图,其余加载 iframe
+// 按页面 id 切换工作台内容视图(只做显示切换;iframe 加载由 onPageUrl 统一负责,
+// 避免 getPageUrl 回发与 navigateTo 的 page-url 双触发导致 iframe 反复重载)
 function switchPage(pageId) {
   const isShellView = pageId === 'balance'
   const appView = document.getElementById('app-view')
@@ -276,7 +272,6 @@ function switchPage(pageId) {
   } else {
     if (balView) balView.style.display = 'none'
     if (appView) appView.style.display = 'flex'
-    if (window.dshShell?.getPageUrl) window.dshShell.getPageUrl(pageId)
   }
 }
 
@@ -289,12 +284,11 @@ if (window.dshShell?.onReturnLauncher) {
   window.dshShell.onReturnLauncher(() => showLauncher())
 }
 
-// 主进程回发页面 URL → 设 iframe.src
+// 主进程回发页面 URL → 设 iframe.src(iframe 加载唯一入口;balance 壳内视图无 url)
 if (window.dshShell?.onPageUrl) {
   window.dshShell.onPageUrl((pageId, url) => {
     ACTIVE = pageId
-    // 壳内视图(balance)无 url,仅切换显示
-    if (pageId === 'balance') { switchPage(pageId); renderNav(); return }
+    if (pageId === 'balance') { renderNav(); return }   // balance 由 onActive 切换,不在此重复
     setFrameUrl(url)
     renderNav()
   })
