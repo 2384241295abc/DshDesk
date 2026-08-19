@@ -24,7 +24,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 
-const { readNapCatWebUIConfig } = require('./napcat-auth.js')
+const { readNapCatWebUIConfig, readNapCatOneBotToken } = require('./napcat-auth.js')
 const { registerPage, listPages, getPage } = require('./pages.js')
 const { getSkin, hasSkin, listSkins, createSkin, registerSkin, deleteSkin } = require('./theme.js')
 const updater = require('./updater.js')
@@ -164,9 +164,14 @@ async function startHarness() {
   let child
   let spawnFailed = false
   try {
+    // 从 NapCat onebot11 配置注入 WS token(真实凭据唯一来源,避免明文落盘/入库)
+    const env = { ...process.env }
+    const onebotToken = readNapCatOneBotToken()
+    if (onebotToken) env.DSH_QQ_ONEBOT_TOKEN = onebotToken
     child = spawn(node, ['apps/cli/lib/bin.js', 'web'], {
       cwd, stdio: ['ignore', fdOut, fdErr], windowsHide: true,
       detached: process.platform !== 'win32',
+      env,
     })
   } catch (e) { showError(`无法启动进程：${String(e.message || e)}`); return false }
   serverProcess = child
