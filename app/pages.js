@@ -9,7 +9,8 @@
  * 页面对象字段：
  *   id       唯一标识（导航切换用）
  *   label    导航栏显示名
- *   url      加载地址（http 或 file）
+ *   url      加载地址（http 或 file）；缺省 = 壳内视图（不加载 iframe，
+ *            由 shell.js 按 pageId 显示对应壳内视图，如额度页）
  *   auth     { type:'token', source:'file', path, tokenField } 可选：进入页面时自动注入 token 登录
  *   onEnter  (win) => void  可选：进入页面时回调（如探活、提示）
  */
@@ -18,10 +19,10 @@ const pages = new Map()
 
 /**
  * 注册页面
- * @param {object} p { id, label, url, auth?, onEnter? }
+ * @param {object} p { id, label, url?, auth?, onEnter? }
  */
 function registerPage(p) {
-  if (!p || !p.id || !p.url) throw new Error(`pages: 页面需 id 与 url (got ${JSON.stringify(p)})`)
+  if (!p || !p.id) throw new Error(`pages: 页面需 id (got ${JSON.stringify(p)})`)
   pages.set(p.id, p)
 }
 

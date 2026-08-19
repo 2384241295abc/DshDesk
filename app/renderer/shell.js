@@ -38,7 +38,10 @@ function loadPageIntoFrame(pageId) {
 // 主进程推送页面 URL 后,设 iframe.src
 function setFrameUrl(url) {
   const frame = document.getElementById('app-frame')
-  if (frame && url) frame.src = url
+  if (frame && url) {
+    frame.onload = () => { if (window.dshShell?.notifyFrameLoaded) window.dshShell.notifyFrameLoaded() }
+    frame.src = url
+  }
 }
 
 // ---------- 模块:nav(页面切换按钮,仅进入后显示) ----------
@@ -97,6 +100,52 @@ function initLauncher() {
   })
 }
 
+// ---------- 模块:balance-view(DeepSeek 额度,壳内视图) ----------
+function setBalanceStatus(text) {
+  const el = document.getElementById('bv-status')
+  if (el) el.textContent = text || ''
+}
+function setBalanceLoading(on) {
+  const view = document.getElementById('balance-view')
+  if (view) view.classList.toggle('bv-loading', !!on)
+}
+async function refreshBalance() {
+  setBalanceLoading(true)
+  setBalanceStatus('查询中…')
+  try {
+    const res = await window.dshShell?.getBalance()
+    if (!res || !res.ok) {
+      setBalanceStatus(res?.error || '查询失败')
+      setBalanceLoading(false)
+      return
+    }
+    const data = res.data || {}
+    const info = (data.balance_infos || [])[0] || {}
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v }
+    set('bv-total', info.total_balance != null ? info.total_balance : '--')
+    set('bv-currency', info.currency || 'CNY')
+    set('bv-granted', info.granted_balance != null ? info.granted_balance : '--')
+    set('bv-topped', info.topped_up_balance != null ? info.topped_up_balance : '--')
+    const avail = document.getElementById('bv-available')
+    if (avail) {
+      const ok = data.is_available === true
+      avail.textContent = ok ? '可用' : '不可用'
+      avail.className = 'v ' + (ok ? 'ok' : 'bad')
+    }
+    const t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    setBalanceStatus(`更新于 ${t}`)
+  } catch (e) {
+    setBalanceStatus('查询失败: ' + String(e?.message || e))
+  }
+  setBalanceLoading(false)
+}
+function initBalanceView() {
+  document.getElementById('bv-refresh')?.addEventListener('click', refreshBalance)
+  document.getElementById('bv-recharge')?.addEventListener('click', () => {
+    if (window.dshShell?.openRecharge) window.dshShell.openRecharge()
+  })
+}
+
 // ---------- 模块初始化 ----------
 function init() {
   // 设置按钮:点击 → 主进程弹原生皮肤菜单(原生菜单不被 WebContentsView 遮挡)
@@ -109,6 +158,7 @@ function init() {
   renderNav()
   initWinControls()
   initLauncher()
+  initBalanceView()
 }
 
 // ---------- 启动页状态(主进程推送) ----------
@@ -145,6 +195,23 @@ function applySkinAssets(colors, images) {
       launcher.style.backgroundPosition = 'center'
     }
   }
+  // 图片:工作台背景(appBg)→ 铺到 iframe 容器,iframe 透明露出
+  if (images && images.appBg) {
+    const wrap = document.getElementById('app-frame-wrap')
+    if (wrap) {
+      wrap.style.backgroundImage = `url("${images.appBg}")`
+      wrap.style.backgroundSize = 'cover'
+      wrap.style.backgroundPosition = 'center'
+      wrap.style.backgroundRepeat = 'no-repeat'
+    }
+    const frame = document.getElementById('app-frame')
+    if (frame) frame.style.background = 'transparent'
+  } else {
+    const wrap = document.getElementById('app-frame-wrap')
+    if (wrap) wrap.style.backgroundImage = ''
+    const frame = document.getElementById('app-frame')
+    if (frame) frame.style.background = ''
+  }
 }
 if (window.dshShell?.onTheme) {
   window.dshShell.onTheme((vars) => {
@@ -169,6 +236,7 @@ if (window.dshShell?.onActive) {
   window.dshShell.onActive((pageId) => {
     ACTIVE = pageId
     renderNav()
+    if (document.body.classList.contains('entered')) switchPage(pageId)
   })
 }
 
@@ -179,6 +247,8 @@ function showLauncher() {
   if (frame) frame.src = 'about:blank'
   const appView = document.getElementById('app-view')
   if (appView) appView.style.display = 'none'
+  const balView = document.getElementById('balance-view')
+  if (balView) balView.style.display = 'none'
   const launcher = document.getElementById('launcher')
   if (launcher) launcher.style.display = 'flex'
   document.body.classList.remove('entered')
@@ -187,11 +257,27 @@ function showLauncher() {
 function showWorkspace() {
   const launcher = document.getElementById('launcher')
   if (launcher) launcher.style.display = 'none'
-  const appView = document.getElementById('app-view')
-  if (appView) appView.style.display = 'block'
   document.body.classList.add('entered')
   renderNav()
-  if (window.dshShell?.getPageUrl) window.dshShell.getPageUrl(ACTIVE)
+  switchPage(ACTIVE)   // 显示当前页(iframe 或壳内视图)
+}
+
+// 按页面 id 切换工作台内容:壳内视图(balance)显示对应视图,其余加载 iframe
+function switchPage(pageId) {
+  const isShellView = pageId === 'balance'
+  const appView = document.getElementById('app-view')
+  const balView = document.getElementById('balance-view')
+  if (isShellView) {
+    if (appView) appView.style.display = 'none'
+    if (balView) {
+      balView.style.display = 'flex'
+      refreshBalance()   // 进入额度页即查一次余额
+    }
+  } else {
+    if (balView) balView.style.display = 'none'
+    if (appView) appView.style.display = 'flex'
+    if (window.dshShell?.getPageUrl) window.dshShell.getPageUrl(pageId)
+  }
 }
 
 // 已进入应用:切换工作台视图
@@ -207,6 +293,8 @@ if (window.dshShell?.onReturnLauncher) {
 if (window.dshShell?.onPageUrl) {
   window.dshShell.onPageUrl((pageId, url) => {
     ACTIVE = pageId
+    // 壳内视图(balance)无 url,仅切换显示
+    if (pageId === 'balance') { switchPage(pageId); renderNav(); return }
     setFrameUrl(url)
     renderNav()
   })

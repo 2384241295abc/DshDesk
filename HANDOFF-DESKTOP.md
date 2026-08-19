@@ -3,7 +3,7 @@
 > **维护指令**:每次更新本文件时,在回复中输出一行 `666`(与根目录 HANDOFF.md 统一)。
 
 > **用途**:记录**桌面端壳**(deepseek-harness-desktop 仓库,Electron 应用)的核心信息、架构、IPC 契约、关键坑与回滚要点。与根目录 `HANDOFF.md`(QQ 桥为主)互补:本文件专注壳本身。
-> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接;同日复核:theme.js CSS 变量数 19→20,维护指令统一 666)
+> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接;同日复核:theme.js CSS 变量数 19→20,维护指令统一 666;晚场更新:额度壳内页面 v0.2.11 + assemble 增量模式)
 > **关联**:`README.md`(特性/构建)、`PRINCIPLES.md`(理念,含 8b 复查三遍)、根目录 `HANDOFF.md`(QQ 桥/整体运行状态)
 
 ---
@@ -14,7 +14,7 @@
 |----|-----|
 | 仓库 | `https://github.com/2384241295abc/DshDesk.git`(公开;remote 名为 `DshDesk`,注意大小写) |
 | 本地路径 | `/Users/fuyunhuancheng/Documents/DshDesktop/deepseek-harness-desktop/` |
-| 当前版本 | **v0.2.6**(package.json `version`;main.js 启动页兜底硬编码 `0.2.1` 会被 package.json 覆盖) |
+| 当前版本 | **v0.2.11**(package.json `version`;main.js 启动页兜底硬编码 `0.2.1` 会被 package.json 覆盖) |
 | 上游 harness | deepseek-harness 锁定 commit(`HARNESS_SOURCE` 本地源拷贝,构建时注入 QQ 桥插件) |
 | 架构 | Electron 37 + **同层 iframe** 壳(顶栏/启动页/工作台都在 shell.html 一个 web 内容里) |
 
@@ -144,6 +144,7 @@ hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/D
 3. **自定义布局**:LAYOUT 模块化已就绪,可做用户可编辑布局。
 4. **重启优化**:`.mjs` 改动需用户手动重启 3080(restart-3080.sh 已废弃),后续可做壳内"重启运行部分"按钮(更新流程已有 stopHarness/startHarness 现成逻辑)。
 5. **验证清单**:改壳后必查——①顶栏可点(iframe 不遮挡)②皮肤图片不空白(img-src data:)③iframe 能加载(frame-src)④nav-slot 不纵向堆叠(display:flex)⑤齿轮 pointerdown 不重复触发。
+6. **✅ v0.2.11 已落地**:①**额度壳内页面**(pages.js 支持无 url 壳内视图 → balance 页与主界面/NapCat 并列顶部栏;shell.html `#balance-view` 居中卡片;shell.js `switchPage()` 三处联动(entered/active/page-url);数据走 `balance:get` IPC,密钥不落渲染器)。②**assemble 增量模式**:`.assemble-fingerprint.json` 指纹 → 未变 3 秒/仅 app 变 ~1 分钟/`--full` 全量;⚠️ 修复增量初版 appResDir 误指 Resources 顶层导致结构污染(固定 `Contents/Resources/app`)。③**产物瘦身**:harness rsync 排除 `packages/*/*/node_modules` → 4.5GB→3.0GB。④installers 已清旧仅留 0.2.11。**待办**:0.2.12 DMG 未打包、git 未提交(未决由用户决定)。
 
 ---
 

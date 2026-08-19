@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('dshShell', {
   minimize: () => ipcRenderer.send('win:minimize'),
   maximize: () => ipcRenderer.send('win:maximize'),
   close: () => ipcRenderer.send('win:close'),
+  // 额度查询(主进程读凭据调 DeepSeek API,密钥不落渲染器)
+  getBalance: () => ipcRenderer.invoke('balance:get'),
+  openRecharge: () => ipcRenderer.send('balance:open-recharge'),
+  // 壳 → 主进程:iframe 加载完成(触发皮肤注入)
+  notifyFrameLoaded: () => ipcRenderer.send('frame:loaded'),
   // 主进程 → 壳:页面 URL(供 iframe 加载)
   onPageUrl: (cb) => ipcRenderer.on('shell:page-url', (_e, pageId, url) => cb(pageId, url)),
 })

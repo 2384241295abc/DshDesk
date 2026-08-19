@@ -51,6 +51,11 @@ function createSkin(opts = {}) {
     '--launcher-btn-text': opts.launcherBtnText || '#ffffff',
     '--launcher-btn-ghost': opts.launcherBtnGhost || 'rgba(255,255,255,0.08)',
     '--launcher-accent': opts.launcherAccent || '#4D6BFE',
+    // 工作台额度面板
+    '--panel-bg': opts.panelBg || '#1c1c22',
+    '--panel-text': opts.panelText || '#d0d0d6',
+    '--panel-hover': opts.panelHover || 'rgba(255,255,255,0.08)',
+    '--panel-accent': opts.panelAccent || '#4D6BFE',
   }
 
   // ---------- 图片资源(皮肤可定制) ----------

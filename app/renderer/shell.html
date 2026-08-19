@@ -106,8 +106,48 @@
 
   /* 主界面视图(工作台;iframe 与壳同层,顶栏可交互) */
   #app-view { display: none; position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0; }
-  #app-view iframe { width: 100%; height: 100%; border: none; background: #0c0c10; }
+  #app-frame-wrap { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #0c0c10; }
+  #app-frame-wrap iframe { width: 100%; height: 100%; border: none; background: transparent; }
   /* 视图切换由 shell.js 显式控制 display(launcher: flex / app-view: block) */
+
+  /* ============ 模块:balance-view(额度页,壳内视图,顶部栏切换) ============ */
+  #balance-view {
+    display: none; position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0;
+    background: var(--app-bg, #101014);
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; user-select: none; overflow-y: auto; padding: 24px;
+  }
+  #balance-view .bv-card {
+    width: min(520px, 92%); padding: 30px 34px;
+    background: var(--panel-bg, #1c1c22); color: var(--panel-text, #d0d0d6);
+    border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #balance-view .bv-title {
+    font-size: 16px; font-weight: 600; color: var(--nav-active, #fff);
+    display: flex; align-items: center; gap: 8px;
+  }
+  #balance-view .bv-total { text-align: center; padding: 10px 0 14px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.08)); }
+  #balance-view .bv-total-label { display: block; font-size: 12px; color: var(--title-color, #8a8a90); margin-bottom: 6px; }
+  #balance-view .bv-total-amount { font-size: 44px; font-weight: 700; color: var(--panel-accent, #4D6BFE); letter-spacing: 0.5px; }
+  #balance-view .bv-total-currency { font-size: 15px; color: var(--title-color, #8a8a90); margin-left: 6px; }
+  #balance-view .bv-rows { display: flex; flex-direction: column; gap: 12px; padding: 6px 4px; }
+  #balance-view .bv-row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+  #balance-view .bv-row .k { color: var(--title-color, #8a8a90); }
+  #balance-view .bv-row .v { font-variant-numeric: tabular-nums; font-weight: 500; }
+  #balance-view .bv-row .v.ok { color: var(--state-ok, #28c840); }
+  #balance-view .bv-row .v.bad { color: var(--state-bad, #e81123); }
+  #balance-view .bv-actions { display: flex; gap: 10px; margin-top: 6px; }
+  #balance-view .bv-actions button {
+    flex: 1; border: none; border-radius: 10px; padding: 10px 0;
+    font-size: 13px; font-family: inherit; cursor: pointer; -webkit-app-region: no-drag;
+  }
+  #balance-view #bv-refresh { background: var(--panel-accent, #4D6BFE); color: #fff; }
+  #balance-view #bv-refresh:hover { filter: brightness(1.1); }
+  #balance-view #bv-recharge { background: transparent; color: var(--panel-text, #d0d0d6); border: 1px solid var(--border, rgba(255,255,255,0.2)); }
+  #balance-view #bv-recharge:hover { background: var(--panel-hover, rgba(255,255,255,0.08)); }
+  #balance-view .bv-status { font-size: 11px; color: var(--version-color, rgba(255,255,255,0.35)); min-height: 14px; text-align: center; word-break: break-all; }
+  #balance-view.bv-loading { opacity: 0.55; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -145,7 +185,31 @@
 
   <!-- 模块:app-view(主界面,进入后显示;iframe 承载 DSH/NapCat) -->
   <div id="app-view">
-    <iframe id="app-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    <div id="app-frame-wrap">
+      <iframe id="app-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    </div>
+  </div>
+
+  <!-- 模块:balance-view(额度页,壳内视图,顶部栏切换) -->
+  <div id="balance-view">
+    <div class="bv-card">
+      <div class="bv-title">DeepSeek 额度</div>
+      <div class="bv-total">
+        <span class="bv-total-label">总余额</span>
+        <span class="bv-total-amount" id="bv-total">--</span>
+        <span class="bv-total-currency" id="bv-currency">CNY</span>
+      </div>
+      <div class="bv-rows">
+        <div class="bv-row"><span class="k">可用状态</span><span class="v" id="bv-available">--</span></div>
+        <div class="bv-row"><span class="k">赠送余额</span><span class="v" id="bv-granted">--</span></div>
+        <div class="bv-row"><span class="k">充值余额</span><span class="v" id="bv-topped">--</span></div>
+      </div>
+      <div class="bv-actions">
+        <button id="bv-refresh" title="重新查询余额">刷新</button>
+        <button id="bv-recharge" title="前往 DeepSeek 开放平台充值">充值</button>
+      </div>
+      <div class="bv-status" id="bv-status"></div>
+    </div>
   </div>
 
   <!-- 模块:content(保留兼容占位) -->

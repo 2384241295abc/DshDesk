@@ -16,12 +16,13 @@
 // 皮肤接口 theme.js / 页面接口 pages.js / 更新 updater.js / 皮肤定制(原生菜单)
 // ============================================================================
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, Notification, shell } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const http = require('node:http')
 const net = require('node:net')
 const path = require('node:path')
 const fs = require('node:fs')
+const os = require('node:os')
 
 const { readNapCatWebUIConfig } = require('./napcat-auth.js')
 const { registerPage, listPages, getPage } = require('./pages.js')
@@ -104,6 +105,37 @@ function portInUse() {
   })
 }
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// ---------- DeepSeek 余额查询(主进程读凭据,密钥不落渲染器) ----------
+const CREDENTIALS_FILE = path.join(os.homedir(), '.dsh', '.credentials.yaml')
+const DEEPSEEK_BALANCE_URL = 'https://api.deepseek.com/user/balance'
+const DEEPSEEK_RECHARGE_URL = 'https://platform.deepseek.com/top_up'
+
+/** 读取 ~/.dsh/.credentials.yaml 中的 DEEPSEEK_API_KEY(行级解析,不引入 yaml 依赖) */
+function readDeepSeekApiKey() {
+  try {
+    const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8')
+    const m = raw.match(/^DEEPSEEK_API_KEY:\s*["']?([^"'\s]+)["']?\s*$/m)
+    return m ? m[1] : null
+  } catch { return null }
+}
+
+/** 调 DeepSeek /user/balance;返回 {ok:true,data} 或 {ok:false,error} */
+async function fetchDeepSeekBalance() {
+  const key = readDeepSeekApiKey()
+  if (!key) return { ok: false, error: '未找到 DEEPSEEK_API_KEY(检查 ~/.dsh/.credentials.yaml)' }
+  try {
+    const res = await fetch(DEEPSEEK_BALANCE_URL, {
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return { ok: false, error: `API 响应 ${res.status} ${res.statusText}` }
+    const data = await res.json()
+    return { ok: true, data }
+  } catch (e) {
+    return { ok: false, error: `请求失败: ${String(e?.message || e)}` }
+  }
+}
 
 function showError(msg) {
   console.error(msg)
@@ -239,7 +271,81 @@ function applySkin(name) {
   if (uiWindow && !uiWindow.isDestroyed()) {
     uiWindow.webContents.send('shell:theme', skin.colors)
     uiWindow.webContents.send('shell:skins', listSkins().map((s) => ({ name: s.name, label: s.label, colors: s.colors, images: s.images, animations: s.animations })), currentSkinName)
+    injectDsThemeIntoFrames()
   }
+}
+
+// ---------- 皮肤 → DSH 主题联动(注入 --dsw-* 变量到 iframe 内 DSH 文档) ----------
+function skinBridgeLog(msg) {
+  try {
+    fs.appendFileSync(path.join(app.getPath('userData'), 'skin-bridge.log'),
+      `${new Date().toISOString()} ${msg}\n`)
+  } catch { /* 忽略 */ }
+}
+
+/** 把壳皮肤主色注入 iframe 内 DSH 文档的 token(不侵入 DSH 源码,仅覆盖 CSS 变量) */
+function injectDsThemeIntoFrames() {
+  if (!uiWindow || uiWindow.isDestroyed()) return
+  const skin = getSkin(currentSkinName)
+  const accent = skin.colors['--launcher-accent'] || '#4D6BFE'
+  const appBg = skin.images && skin.images.appBg ? String(skin.images.appBg) : ''
+  const mainFrame = uiWindow.webContents.mainFrame
+  if (!mainFrame) return
+  const accentBlock = [
+    ':root, body, body[data-ds-dark-theme] {',
+    '  --dsw-static-deepseek-400: ' + accent + ' !important;',
+    '  --dsw-static-deepseek-450: ' + accent + ' !important;',
+    '  --dsw-static-deepseek-500: ' + accent + ' !important;',
+    '  --dsw-static-deepseek-600: ' + accent + ' !important;',
+    '  --dsw-alias-brand-primary-new-colorprimary-new-color: ' + accent + ' !important;',
+    '  --dsw-alias-button-info-fill: ' + accent + ' !important;',
+    '  --dsw-alias-button-info-hover: ' + accent + ' !important;',
+    '  --dsw-alias-state-business-primary: ' + accent + ' !important;',
+    '}',
+  ]
+  // 皮肤带工作台背景图:半透明化 DSH 背景层,并直接把 appBg 铺到 body
+  const bgBlock = appBg ? [
+    ':root, body, body[data-ds-dark-theme] {',
+    '  --dsw-alias-bg-base: rgba(16, 16, 20, 0.55) !important;',
+    '  --dsw-alias-bg-layer-1: rgba(28, 28, 34, 0.62) !important;',
+    '  --dsw-alias-bg-layer-2: rgba(28, 28, 34, 0.68) !important;',
+    '  --dsw-alias-bg-layer-3: rgba(28, 28, 34, 0.72) !important;',
+    '  --dsw-specific-sidebar-fill: rgba(21, 21, 23, 0.55) !important;',
+    '  --dsw-specific-menu: rgba(28, 28, 34, 0.78) !important;',
+    '  --dsw-alias-bg-module-platform: rgba(28, 28, 34, 0.6) !important;',
+    '  --dsw-alias-bg-overlay: rgba(28, 28, 34, 0.72) !important;',
+    '  --dsw-alias-bg-multi-select: rgba(28, 28, 34, 0.6) !important;',
+    '  --dsw-specific-bubble: rgba(28, 28, 34, 0.55) !important;',
+    '}',
+    'body, body[data-ds-dark-theme] {',
+    '  background-image: url("' + appBg + '") !important;',
+    '  background-size: cover !important;',
+    '  background-position: center !important;',
+    '  background-repeat: no-repeat !important;',
+    '  background-attachment: fixed !important;',
+    '}',
+  ] : []
+  const css = accentBlock.concat(bgBlock).join('\n')
+  const styleCode = `(() => {
+      const old = document.getElementById('dsh-shell-skin-bridge')
+      if (old) old.remove()
+      const s = document.createElement('style')
+      s.id = 'dsh-shell-skin-bridge'
+      s.textContent = ${JSON.stringify(css)}
+      ;(document.head || document.documentElement).appendChild(s)
+      // 回读计算样式,写回主进程日志定位
+      const b = getComputedStyle(document.body)
+      return JSON.stringify({ bgColor: b.backgroundColor, bgImage: b.backgroundImage.slice(0, 40), bodyBg: document.body.style.background })
+    })()`
+  let injected = 0
+  for (const frame of mainFrame.frames) {
+    if (frame.url && frame.url.includes('127.0.0.1:3080')) {
+      frame.executeJavaScript(styleCode)
+        .then((probe) => { injected++; skinBridgeLog(`injected accent=${accent} appBg=${!!appBg} -> ${frame.url} probe=${probe}`) })
+        .catch((e) => skinBridgeLog(`inject failed -> ${frame.url}: ${String(e?.message || e)}`))
+    }
+  }
+  skinBridgeLog(`injectDsThemeIntoFrames: frames=${mainFrame.frames.length} matched=${injected} skin=${currentSkinName}`)
 }
 
 // ---------- 页面注册 ----------
@@ -254,6 +360,8 @@ function registerBuiltinPages() {
       return token ? `http://127.0.0.1:${port}/webui?token=${encodeURIComponent(token)}` : `http://127.0.0.1:${port}/webui`
     },
   })
+  // 壳内视图(无 url):不加载 iframe,由 shell.js 按 pageId 显示对应壳内视图
+  registerPage({ id: 'balance', label: '额度' })
 }
 registerBuiltinPages()
 
@@ -332,6 +440,11 @@ function openUi() {
     uiWindow.webContents.send('shell:skins', listSkins().map((s) => ({ name: s.name, label: s.label, colors: s.colors, images: s.images, animations: s.animations })), currentSkinName)
     uiWindow.webContents.send('shell:pages', pages, currentPageId, version)
     uiWindow.webContents.send('shell:update-status', { phase: 'idle', text: `当前版本 v${version}` })
+  })
+
+  // iframe(DSH)每次加载完成后注入皮肤联动主题
+  uiWindow.webContents.on('did-frame-finish-load', (_e, isMainFrame) => {
+    if (!isMainFrame) injectDsThemeIntoFrames()
   })
 }
 
@@ -434,6 +547,11 @@ async function runUpdate() {
 }
 
 // ---------- IPC ----------
+ipcMain.handle('balance:get', () => fetchDeepSeekBalance())
+ipcMain.on('balance:open-recharge', () => {
+  shell.openExternal(DEEPSEEK_RECHARGE_URL).catch(() => { /* 忽略 */ })
+})
+ipcMain.on('frame:loaded', () => injectDsThemeIntoFrames())
 ipcMain.on('win:navigate', (_e, pageId) => { navigateTo(String(pageId), { silent: true }) })
 ipcMain.on('win:get-page-url', (_e, pageId) => {
   const page = getPage(String(pageId))
