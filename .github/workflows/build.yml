@@ -47,7 +47,9 @@ jobs:
 
       # 拉取 QQ 桥插件源码(WanShengling 公开仓库)。
       # build-harness.js 从 proj/dsh-qq-bridge/plugin 注入;CI 每次全新构建需要此步。
+      # 显式 shell:bash —— Windows runner 默认 PowerShell 不认 rm -rf/test 语法。
       - name: Fetch qq-bridge plugin (WanShengling)
+        shell: bash
         run: |
           set -euo pipefail
           rm -rf dsh-qq-bridge
