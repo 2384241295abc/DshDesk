@@ -625,8 +625,10 @@ ipcMain.handle('win:isMaximized', () => uiWindow?.isMaximized() ?? false)
 
 // 放行 iframe(DSH/NapCat)的剪贴板权限:Chromium 权限模型默认拒绝 iframe 的
 // Async Clipboard API,不设处理器则 navigator.clipboard.writeText 静默失败 → 复制无效。
-app.on('web-contents-created', (_e, contents) => {
-  contents.setPermissionRequestHandler((_wc, permission, callback) => {
+// 用 session 级处理器(对所有 webContents 生效,含 splash/iframe),在 whenReady 后设置。
+app.whenReady().then(() => {
+  const { session } = require('electron')
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     const allow = [
       'clipboard-sanitized-write', 'clipboard-read',
       'clipboard-write',           // 兼容旧名

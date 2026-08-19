@@ -33,8 +33,14 @@ if (fs.existsSync(dmg)) fs.rmSync(dmg)
 sh('hdiutil', ['create', '-volname', 'DeepSeek Harness', '-srcfolder', out, '-ov', '-format', 'UDZO', dmg])
 
 // 2. 校验:挂载 → md5 对比 app 层 → 卸载
-const MP = '/Volumes/DeepSeek Harness'
+// 动态取挂载点:先卸载全部残留卷,再 attach,避免同名卷冲突验证到旧卷
+for (const d of fs.readdirSync('/Volumes').filter((x) => x.startsWith('DeepSeek'))) {
+  spawnSync('hdiutil', ['detach', path.join('/Volumes', d), '-force', '-quiet'])
+}
 sh('hdiutil', ['attach', dmg, '-nobrowse', '-quiet'])
+const mp = fs.readdirSync('/Volumes').find((x) => x.startsWith('DeepSeek'))
+if (!mp) fail('挂载失败:未找到 DeepSeek 卷')
+const MP = path.join('/Volumes', mp)
 try {
   const src = path.join(proj, 'app')
   const dst = path.join(MP, 'DeepSeekHarness.app', 'Contents', 'Resources', 'app')

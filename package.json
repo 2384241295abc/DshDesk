@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-desktop",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "DeepSeek Harness Desktop build tooling (Electron runtime for packaging only)",
   "private": true,
   "main": "app/main.js",
