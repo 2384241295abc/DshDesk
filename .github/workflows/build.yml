@@ -45,16 +45,14 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
           git config --system core.longpaths true
 
-      # 拉取 QQ 桥插件源码(WanShengling 私有仓库,经 GH_TOKEN 认证)。
+      # 拉取 QQ 桥插件源码(WanShengling 公开仓库)。
       # build-harness.js 从 proj/dsh-qq-bridge/plugin 注入;CI 每次全新构建需要此步。
       - name: Fetch qq-bridge plugin (WanShengling)
         run: |
           set -euo pipefail
           rm -rf dsh-qq-bridge
-          git clone --depth 1 https://x-access-token:${GH_TOKEN}@github.com/2384241295abc/WanShengling.git dsh-qq-bridge
+          git clone --depth 1 https://github.com/2384241295abc/WanShengling.git dsh-qq-bridge
           test -d dsh-qq-bridge/plugin && echo "plugin fetched" || { echo "❌ WanShengling 仓库缺 plugin/ 目录"; exit 1; }
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Clone & build DeepSeek Harness
         run: node build/build-harness.js
