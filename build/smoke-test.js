@@ -38,12 +38,13 @@ if (!checkExists(node, '内置 Node')) process.exit(1)
 if (!checkExists(path.join(harness, 'apps', 'cli', 'lib', 'bin.js'), 'harness')) process.exit(1)
 
 console.log(`[smoke] 内置 Node: ${node}`)
-// 原生模块检查：从真正依赖它们的包目录解析（hoisted 布局下根目录 resolve 不到）
-//   node-pty -> packages/subprocess/subprocess-local
-//   koffi    -> packages/fs/fs-local
+// 原生模块检查：从产物顶层 @deepseek-ai 副本解析（运行时真实路径；packages/ 源
+// 目录经 assemble 瘦身后无 node_modules，node-pty/koffi 等原生模块只存在于顶层副本）
+//   node-pty -> node_modules/@deepseek-ai/dsh-subprocess-local
+//   koffi    -> node_modules/@deepseek-ai/dsh-fs-local
 const nativeChecks = [
-  { pkg: 'packages/subprocess/subprocess-local', mod: 'node-pty', probe: 'spawn' },
-  { pkg: 'packages/fs/fs-local', mod: 'koffi', probe: 'address' },
+  { pkg: 'node_modules/@deepseek-ai/dsh-subprocess-local', mod: 'node-pty', probe: 'spawn' },
+  { pkg: 'node_modules/@deepseek-ai/dsh-fs-local', mod: 'koffi', probe: 'address' },
 ]
 for (const { pkg, mod, probe } of nativeChecks) {
   const pkgDir = path.join(harness, pkg)
