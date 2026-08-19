@@ -44,7 +44,7 @@ function compareVersions(a, b) {
   return 0
 }
 
-/** 查询 GitHub 最新 Release;返回 { tag, version, dmgUrl, dmgName, dmgSize } 或 null */
+/** 查询 GitHub 最新 Release;返回 { tag, version, assetUrl, assetName, assetSize } 或 null */
 function fetchLatestRelease() {
   return new Promise((resolve, reject) => {
     const req = https.get(API, { headers: { 'User-Agent': 'DeepSeekHarness-Desktop', Accept: 'application/vnd.github+json' }, timeout: 15000 }, (res) => {
@@ -54,15 +54,18 @@ function fetchLatestRelease() {
         try {
           const d = JSON.parse(body)
           if (!d.tag_name) return resolve(null)
-          // 找 macOS arm64 DMG 资产
-          const asset = (d.assets || []).find((a) => /macOS-arm64.*\.dmg$/i.test(a.name))
+          // 按平台选资产:macOS→DMG,Windows→exe 安装包
+          const isWin = process.platform === 'win32'
+          const asset = (d.assets || []).find((a) => isWin
+            ? /\.exe$/i.test(a.name)
+            : /macOS-arm64.*\.dmg$/i.test(a.name))
           if (!asset) return resolve(null)
           resolve({
             tag: d.tag_name,
             version: String(d.tag_name).replace(/^v/, ''),
-            dmgUrl: asset.browser_download_url,
-            dmgName: asset.name,
-            dmgSize: asset.size,
+            assetUrl: asset.browser_download_url,
+            assetName: asset.name,
+            assetSize: asset.size,
           })
         } catch (e) { reject(e) }
       })
@@ -154,4 +157,21 @@ function installApp(mountPoint, appName = 'DeepSeekHarness.app') {
   }
 }
 
-module.exports = { localVersion, compareVersions, fetchLatestRelease, download, mountDmg, unmountDmg, installApp }
+/**
+ * Windows: 静默运行 Inno Setup 安装包(覆盖安装,更新用户配置保留)。
+ * Inno Setup 静默参数: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER
+ * @returns {{ok:boolean, error?:string}}
+ */
+function installWindowsExe(exePath) {
+  if (process.platform !== 'win32') return { ok: false, error: '非 Windows 平台' }
+  if (!fs.existsSync(exePath)) return { ok: false, error: `安装包不存在: ${exePath}` }
+  try {
+    const r = spawnSync(exePath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER'], { encoding: 'utf8', timeout: 300000 })
+    if (r.status !== 0) return { ok: false, error: `安装退出码 ${r.status}: ${r.stderr?.slice(0, 200) || ''}` }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
+module.exports = { localVersion, compareVersions, fetchLatestRelease, download, mountDmg, unmountDmg, installApp, installWindowsExe }

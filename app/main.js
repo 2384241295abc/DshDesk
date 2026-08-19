@@ -595,16 +595,22 @@ async function runUpdate() {
     sendUpdateStatus({ phase: 'found', text: `发现新版本 v${latest.version},开始下载…` })
     const tmpDir = path.join(app.getPath('temp'), 'dsh-update')
     fs.mkdirSync(tmpDir, { recursive: true })
-    const dmgPath = path.join(tmpDir, latest.dmgName)
-    sendUpdateStatus({ phase: 'downloading', text: `正在下载 v${latest.version}(${(latest.dmgSize / 1024 / 1024).toFixed(0)}MB)…`, percent: 0 })
-    await updater.download(latest.dmgUrl, dmgPath, (p) => {
+    const assetPath = path.join(tmpDir, latest.assetName)
+    sendUpdateStatus({ phase: 'downloading', text: `正在下载 v${latest.version}(${(latest.assetSize / 1024 / 1024).toFixed(0)}MB)…`, percent: 0 })
+    await updater.download(latest.assetUrl, assetPath, (p) => {
       sendUpdateStatus({ phase: 'downloading', text: `正在下载 v${latest.version}… ${p.percent}%`, percent: p.percent })
     })
     sendUpdateStatus({ phase: 'installing', text: '正在安装更新…' })
-    const mountPoint = updater.mountDmg(dmgPath)
-    if (!mountPoint) { sendUpdateStatus({ phase: 'error', text: 'DMG 挂载失败' }); return }
-    const result = updater.installApp(mountPoint)
-    updater.unmountDmg(mountPoint)
+    // 按平台安装:macOS→DMG 挂载替换;Windows→Inno Setup 静默安装
+    let result
+    if (IS_MAC) {
+      const mountPoint = updater.mountDmg(assetPath)
+      if (!mountPoint) { sendUpdateStatus({ phase: 'error', text: 'DMG 挂载失败' }); return }
+      result = updater.installApp(mountPoint)
+      updater.unmountDmg(mountPoint)
+    } else {
+      result = updater.installWindowsExe(assetPath)
+    }
     if (!result.ok) { sendUpdateStatus({ phase: 'error', text: `安装失败: ${result.error}` }); return }
     sendUpdateStatus({ phase: 'done', text: '更新完成,正在重启运行部分…' })
     setTimeout(() => {

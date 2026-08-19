@@ -128,6 +128,16 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux-<ver>.tar.
 
 > Windows/Linux 可用 NapCat Shell 版（`node napcat.mjs` 扫码登录，WebUI 开正向 WS），桥地址/端口按实际配置。
 
+### 部署 NapCat（Windows Shell 版）
+
+> Windows 是 NapCat **官方第一支持平台**（Shell 独立运行，无需注入 QQ）。桌面壳启动时自动从本机 NapCat onebot 配置读 token 注入桥（`DSH_QQ_ONEBOT_TOKEN`），无需手填。
+
+1. **下载**：从 [NapCat GitHub Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载 `NapCat.Shell.zip`（Windows 版），解压到如 `C:\NapCat`
+2. **准备 QQ 号**：小号登录（NapCat 需使用未登录的 QQ 号，首次扫码）
+3. **运行**：`node napcat.mjs`（或双击启动脚本）→ 按提示扫码登录
+4. **配置 OneBot 11**：WebUI(`http://127.0.0.1:6099/webui`)或 `config/onebot11_<qq>.json`，开**正向 WebSocket** 监听 `127.0.0.1:3001`，token 自定
+5. **连接桥**：桌面壳自动读该 token 注入（无需改代码/配置）；若想手填，见下节"连接桥"
+
 ### 连接桥
 
 1. 设置桥的 WS 地址（任选其一）：
