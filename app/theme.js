@@ -86,6 +86,11 @@ function getSkin(name = 'default') {
   return skinRegistry.get(name) || defaultSkin
 }
 
+/** 皮肤是否已注册(存在性判断;getSkin 对缺失返回 defaultSkin 兜底,不能用于判断) */
+function hasSkin(name) {
+  return skinRegistry.has(name)
+}
+
 function listSkins() {
   return [...skinRegistry.values()]
 }
@@ -125,4 +130,4 @@ const lightSkin = createSkin({
 })
 registerSkin(lightSkin)
 
-module.exports = { createSkin, registerSkin, deleteSkin, getSkin, listSkins, defaultSkin, DEFAULT_LOGO }
+module.exports = { createSkin, registerSkin, deleteSkin, getSkin, hasSkin, listSkins, defaultSkin, DEFAULT_LOGO }

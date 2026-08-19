@@ -26,7 +26,7 @@ const os = require('node:os')
 
 const { readNapCatWebUIConfig } = require('./napcat-auth.js')
 const { registerPage, listPages, getPage } = require('./pages.js')
-const { getSkin, listSkins, createSkin, registerSkin, deleteSkin } = require('./theme.js')
+const { getSkin, hasSkin, listSkins, createSkin, registerSkin, deleteSkin } = require('./theme.js')
 const updater = require('./updater.js')
 
 const HARNESS_PORT = 3080
@@ -257,8 +257,8 @@ function skinStateFile() { return path.join(app.getPath('userData'), 'skin.json'
 function customSkinFile() { return path.join(app.getPath('userData'), 'custom-skin.json') }
 /** 持久化 custom 皮肤(主色 + 图片 dataURI)—— 重启后恢复,无需重新配置 */
 function saveCustomSkin() {
+  if (!hasSkin('custom')) { return }
   const s = getSkin('custom')
-  if (!s) { return }
   try {
     fs.writeFileSync(customSkinFile(), JSON.stringify({
       accent: s.colors['--launcher-accent'] || '#4D6BFE',
@@ -480,12 +480,10 @@ function openUi() {
 
 /** 获取或创建自定义皮肤草稿 */
 function customSkinDraft() {
-  let s = getSkin('custom')
-  if (!s) {
-    s = createSkin({ name: 'custom', label: '自定义' })
-    registerSkin(s)
+  if (!hasSkin('custom')) {
+    registerSkin(createSkin({ name: 'custom', label: '自定义' }))
   }
-  return s
+  return getSkin('custom')
 }
 
 /** 导入图片到自定义皮肤(原生对话框) */
@@ -516,8 +514,8 @@ function pickSkinImage(slot) {
 
 /** 移除自定义皮肤图片 */
 function clearSkinImage(slot) {
+  if (!hasSkin('custom')) return
   const s = getSkin('custom')
-  if (!s) return
   if (slot === 'launcher') delete s.images.launcherBg
   else delete s.images.appBg
   saveCustomSkin()
