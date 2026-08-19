@@ -132,11 +132,15 @@ tar -C build/DeepSeekHarnessApp -czf installers/DeepSeekHarness-linux-<ver>.tar.
 
 > Windows 是 NapCat **官方第一支持平台**（Shell 独立运行，无需注入 QQ）。桌面壳启动时自动从本机 NapCat onebot 配置读 token 注入桥（`DSH_QQ_ONEBOT_TOKEN`），无需手填。
 
-1. **下载**：从 [NapCat GitHub Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载 `NapCat.Shell.zip`（Windows 版），解压到如 `C:\NapCat`
-2. **准备 QQ 号**：小号登录（NapCat 需使用未登录的 QQ 号，首次扫码）
-3. **运行**：`node napcat.mjs`（或双击启动脚本）→ 按提示扫码登录
+**安装包自带 node.exe 与 `napcat-win.bat` 一键脚本 —— 用户无需手动安装 Node.js。**
+
+1. **安装 DeepSeek Harness**：运行 `DeepSeekHarnessSetup-*.exe`，安装目录含 `napcat-win.bat`
+2. **下载 NapCat(首次)**：双击运行 `napcat-win.bat install` → 自动下载解压 `NapCat.Shell` 到 `%USERPROFILE%\.napcat`(或手动从 [NapCat Releases](https://github.com/NapNeko/NapCatQQ/releases) 下载 `NapCat.Shell.zip`)
+3. **启动 NapCat**：双击 `napcat-win.bat` → 用**未登录的 QQ 小号**扫码登录
 4. **配置 OneBot 11**：WebUI(`http://127.0.0.1:6099/webui`)或 `config/onebot11_<qq>.json`，开**正向 WebSocket** 监听 `127.0.0.1:3001`，token 自定
 5. **连接桥**：桌面壳自动读该 token 注入（无需改代码/配置）；若想手填，见下节"连接桥"
+
+> 脚本使用应用内置的 `resources/node/node.exe`，不依赖系统 Node.js；全程零额外安装。
 
 ### 连接桥
 
