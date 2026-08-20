@@ -151,6 +151,7 @@ if (platform === 'win32') {
     fs.copyFileSync(path.join(electronDist, 'electron.exe'), path.join(out, 'DeepSeekHarness.exe'))
     copyContents(nodeSrc, path.join(resDir, 'node'))
     copyHarness(harnessSrc, path.join(resDir, 'harness'))
+    copyContents(appSrc, path.join(resDir, 'app'))   // 🔴 full 模式必须拷 app 层,否则 Electron 显示默认页
   }
   if (!full && !appUpToDate) copyContents(appSrc, path.join(resDir, 'app'))
   // 便携版托盘图标：appIcon() 在 exe 同目录找 app.ico
@@ -288,6 +289,7 @@ if (platform === 'win32') {
     fs.renameSync(path.join(out, 'electron'), path.join(out, 'DeepSeekHarness'))
     copyContents(nodeSrc, path.join(resDir, 'node'))
     copyHarness(harnessSrc, path.join(resDir, 'harness'))
+    copyContents(appSrc, path.join(resDir, 'app'))   // 🔴 full 模式必须拷 app 层(同 win32)
   }
   if (!full && !appUpToDate) copyContents(appSrc, path.join(resDir, 'app'))
   fs.copyFileSync(path.join(root, 'icon-256.png'), path.join(resDir, 'icon.png'))
