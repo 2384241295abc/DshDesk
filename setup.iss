@@ -18,7 +18,8 @@ AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher=DeepSeek AI
 AppPublisherURL=https://github.com/deepseek-ai/deepseek-harness
 AppSupportURL=https://github.com/deepseek-ai/deepseek-harness
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+; 安装到短目录(去空格),降低嵌套路径总长(DSH node_modules 深层文件,防 260 字符限制)
+DefaultDirName={localappdata}\Programs\DshHarness
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -35,6 +36,21 @@ MinVersion=10.0.19041
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
+
+[Registry]
+; 启用 Windows 长路径支持(LongPathsEnabled=1),根治 DSH 深层 node_modules 的 260 字符限制
+; 需重启生效;HKLM 需管理员,非管理员安装时由 [Code] 提示(见下方)
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\FileSystem"; ValueType: dword; ValueName: "LongPathsEnabled"; ValueData: "1"; Flags: uninsdeletevalue; Check: IsAdminLoggedOn
+
+[Code]
+// 非管理员安装时提示启用长路径(否则 DSH 深层文件可能因 260 字符限制装不上)
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if not IsAdminLoggedOn() then
+    MsgBox('建议以管理员身份运行安装程序,以便自动启用 Windows 长路径支持(DSH 含深层文件)。' + #13#10 +
+           '如不启用,安装可能因路径过长(260字符限制)失败。', mbInformation, MB_OK);
+end;
 
 [Languages]
 ; 中文语言文件打进仓库（lang/），避免不同 Inno 版本目录差异
