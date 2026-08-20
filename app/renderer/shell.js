@@ -138,6 +138,37 @@ function initBalanceView() {
   })
 }
 
+// ---------- 模块:api-setup(首次启动无 API key 的配置引导) ----------
+function showApiSetup() {
+  const ov = document.getElementById('api-setup')
+  if (ov) ov.style.display = 'flex'
+}
+function hideApiSetup() {
+  const ov = document.getElementById('api-setup')
+  if (ov) ov.style.display = 'none'
+}
+function initApiSetup() {
+  const saveBtn = document.getElementById('as-save')
+  const skipBtn = document.getElementById('as-skip')
+  const input = document.getElementById('as-input')
+  const status = document.getElementById('as-status')
+  const doSave = async () => {
+    const key = input.value.trim()
+    if (!key) { if (status) status.textContent = '请输入 API Key'; return }
+    if (status) status.textContent = '保存中…'
+    const ok = await window.dshShell?.saveApiKey(key)
+    if (ok) { hideApiSetup(); if (status) status.textContent = ''; input.value = '' }
+    else if (status) status.textContent = '保存失败,请重试'
+  }
+  saveBtn?.addEventListener('click', doSave)
+  input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave() })
+  skipBtn?.addEventListener('click', hideApiSetup)
+  // 进入工作台时检查:无 key 则弹配置层
+  if (window.dshShell?.hasApiKey) {
+    window.dshShell.hasApiKey().then((has) => { if (!has) showApiSetup() })
+  }
+}
+
 // ---------- 模块初始化 ----------
 function init() {
   // 设置按钮:点击 → 主进程弹原生皮肤菜单(原生菜单不被 WebContentsView 遮挡)
@@ -151,6 +182,7 @@ function init() {
   initWinControls()
   initLauncher()
   initBalanceView()
+  initApiSetup()
   // 接收 iframe 内 DSH 的复制请求(polyfill postMessage → 壳 IPC → 主进程剪贴板)
   window.addEventListener('message', (e) => {
     const d = e.data

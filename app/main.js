@@ -121,6 +121,26 @@ function readDeepSeekApiKey() {
   } catch { return null }
 }
 
+/** 写入 DEEPSEEK_API_KEY 到 ~/.dsh/.credentials.yaml(创建目录/文件,保留其它字段) */
+function writeDeepSeekApiKey(key) {
+  const k = String(key || '').trim()
+  if (!k) return false
+  try {
+    fs.mkdirSync(path.dirname(CREDENTIALS_FILE), { recursive: true })
+    let raw = ''
+    try { raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8') } catch { /* 新建 */ }
+    // 替换已有 DEEPSEEK_API_KEY 行,否则追加
+    const line = `DEEPSEEK_API_KEY: ${k}`
+    if (/^DEEPSEEK_API_KEY:/m.test(raw)) {
+      raw = raw.replace(/^DEEPSEEK_API_KEY:.*$/m, line)
+    } else {
+      raw = raw.trimEnd() + (raw.trim() ? '\n' : '') + line + '\n'
+    }
+    fs.writeFileSync(CREDENTIALS_FILE, raw, { mode: 0o600 })
+    return true
+  } catch { return false }
+}
+
 /** 调 DeepSeek /user/balance;返回 {ok:true,data} 或 {ok:false,error} */
 async function fetchDeepSeekBalance() {
   const key = readDeepSeekApiKey()
@@ -637,6 +657,9 @@ ipcMain.on('balance:open-recharge', () => {
 ipcMain.on('clipboard:write', (_e, text) => {
   try { clipboard.writeText(String(text ?? '')) } catch { /* 忽略 */ }
 })
+// API key 配置:查询是否已配置 / 保存(首次启动引导,免手动找文件)
+ipcMain.handle('api:has-key', () => !!readDeepSeekApiKey())
+ipcMain.handle('api:save-key', (_e, key) => writeDeepSeekApiKey(key))
 ipcMain.on('frame:loaded', () => { injectDsThemeIntoFrames(); injectClipboardPolyfill() })
 ipcMain.on('win:navigate', (_e, pageId) => { navigateTo(String(pageId), { silent: true }) })
 ipcMain.on('shell:set-skin', (_e, name) => { applySkin(String(name)) })

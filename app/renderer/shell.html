@@ -110,6 +110,35 @@
   #app-frame-wrap iframe { width: 100%; height: 100%; border: none; background: transparent; }
   /* 视图切换由 shell.js 显式控制 display(launcher: flex / app-view: block) */
 
+  /* ============ 模块:api-setup(API key 配置引导覆盖层) ============ */
+  #api-setup {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.55); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  #api-setup .as-card {
+    width: min(440px, 90%); padding: 28px 30px;
+    background: var(--panel-bg, #1c1c22); color: var(--panel-text, #d0d0d6);
+    border: 1px solid var(--border, rgba(255,255,255,0.12)); border-radius: 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #api-setup .as-title { font-size: 17px; font-weight: 600; color: var(--nav-active, #fff); }
+  #api-setup .as-desc { font-size: 12px; color: var(--title-color, #8a8a90); line-height: 1.6; }
+  #api-setup #as-input {
+    border: 1px solid var(--border, rgba(255,255,255,0.2)); border-radius: 10px;
+    background: rgba(255,255,255,0.05); color: var(--panel-text, #d0d0d6);
+    padding: 11px 14px; font-size: 13px; font-family: inherit; outline: none;
+  }
+  #api-setup #as-input:focus { border-color: var(--panel-accent, #4D6BFE); }
+  #api-setup .as-actions { display: flex; gap: 10px; }
+  #api-setup .as-actions button {
+    flex: 1; border: none; border-radius: 10px; padding: 10px 0;
+    font-size: 13px; font-family: inherit; cursor: pointer; -webkit-app-region: no-drag;
+  }
+  #api-setup #as-save { background: var(--panel-accent, #4D6BFE); color: #fff; }
+  #api-setup #as-skip { background: transparent; color: var(--nav-text, #c9c9cd); border: 1px solid var(--border, rgba(255,255,255,0.2)); }
+  #api-setup .as-status { font-size: 11px; color: var(--version-color, rgba(255,255,255,0.35)); min-height: 14px; }
+
   /* ============ 模块:balance-view(额度页,壳内视图,顶部栏切换) ============ */
   #balance-view {
     display: none; position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: 0;
@@ -209,6 +238,20 @@
         <button id="bv-recharge" title="前往 DeepSeek 开放平台充值">充值</button>
       </div>
       <div class="bv-status" id="bv-status"></div>
+    </div>
+  </div>
+
+  <!-- 模块:api-setup(首次启动无 API key 的配置引导覆盖层) -->
+  <div id="api-setup">
+    <div class="as-card">
+      <div class="as-title">🔑 配置 API Key</div>
+      <div class="as-desc">首次使用需要 DeepSeek API Key(在 platform.deepseek.com 创建)。填好后保存即可使用。</div>
+      <input id="as-input" type="text" placeholder="sk-xxxxx" spellcheck="false" autocomplete="off">
+      <div class="as-actions">
+        <button id="as-save" class="primary">保存</button>
+        <button id="as-skip" class="ghost">暂不设置</button>
+      </div>
+      <div class="as-status" id="as-status"></div>
     </div>
   </div>
 
