@@ -85,14 +85,22 @@ function download(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https:') ? https : http
     const file = fs.createWriteStream(dest)
-    const req = mod.get(url, { headers: { 'User-Agent': 'DeepSeekHarness-Desktop' } }, (res) => {
+    // 整体超时:防止代理/网络异常导致永久挂起(用户反馈更新下不了,无反馈)
+    const timer = setTimeout(() => {
+      file.close(); try { fs.unlinkSync(dest) } catch {}
+      req.destroy()
+      reject(new Error('下载超时(120s),请检查网络或代理后重试'))
+    }, 120000)
+    const req = mod.get(url, { headers: { 'User-Agent': 'DeepSeekHarness-Desktop' }, timeout: 30000 }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         // 跟随重定向(GitHub release 会 302 到 objects 存储)
+        clearTimeout(timer)
         file.close()
         fs.unlinkSync(dest)
         return download(res.headers.location, dest, onProgress).then(resolve, reject)
       }
       if (res.statusCode !== 200) {
+        clearTimeout(timer)
         file.close()
         fs.unlinkSync(dest)
         return reject(new Error(`download failed: HTTP ${res.statusCode}`))
@@ -104,10 +112,10 @@ function download(url, dest, onProgress) {
         if (onProgress) onProgress({ received, total, percent: total ? Math.round(received / total * 100) : 0 })
       })
       res.pipe(file)
-      file.on('finish', () => { file.close(); resolve(dest) })
-      file.on('error', (e) => { file.close(); fs.unlinkSync(dest); reject(e) })
+      file.on('finish', () => { clearTimeout(timer); file.close(); resolve(dest) })
+      file.on('error', (e) => { clearTimeout(timer); file.close(); fs.unlinkSync(dest); reject(e) })
     })
-    req.on('error', (e) => { file.close(); try { fs.unlinkSync(dest) } catch {} reject(e) })
+    req.on('error', (e) => { clearTimeout(timer); file.close(); try { fs.unlinkSync(dest) } catch {} reject(e) })
   })
 }
 
