@@ -1,7 +1,7 @@
 'use strict'
 // 克隆 deepseek-harness（锁定上游 commit）、注入 dsh-qq-bridge 插件并构建（跨平台）
 //
-//  - 锁定上游：默认克隆固定 SHA（47f943859bef60e4160492346772ded9b24f765a，dsh 0.1.0-rc.5），
+//  - 锁定上游：默认克隆固定 SHA（b150a551b8d465e31e418e1b2eaf5e79bbb7d28e，dsh 0.1.1-rc.2），
 //    可用环境变量 HARNESS_COMMIT 覆盖；仓库地址 HARNESS_REPO 可覆盖
 //  - 插件注入：把 qq-bridge/plugin 作为 workspace 包打入 packages/qq/dsh-qq-bridge，
 //    挂进 apps/cli 依赖（healProfilesModuleFallback 会把它软链进 profiles/node_modules），
@@ -16,8 +16,8 @@ const proj = path.dirname(path.resolve(__dirname))
 const h = path.join(proj, 'resources', 'harness')
 
 const HARNESS_REPO = process.env.HARNESS_REPO || 'https://github.com/deepseek-ai/deepseek-harness.git'
-// 锁定 dsh 0.1.0-rc.5（deepseek-harness master 2026-08 的稳定发布点）
-const HARNESS_COMMIT = process.env.HARNESS_COMMIT || '47f943859bef60e4160492346772ded9b24f765a'
+// 锁定 dsh 0.1.1-rc.2（2026-08-21；旧 apiproxy 架构最后一个 rc，避开 0.1.2-alpha.1 的 ApiProxy 删除迁移）
+const HARNESS_COMMIT = process.env.HARNESS_COMMIT || 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
 // 本地源覆盖：github 不可达时（如离线/受限网络），可指向本机已有 checkout
 // （如 HARNESS_SOURCE=/path/to/deepseek-harness），从本地仓库克隆到锁定版本
 const LOCAL_SOURCE = process.env.HARNESS_SOURCE || ''
@@ -143,6 +143,17 @@ const landlockDst = path.join(h, 'node_modules', '@deepseek-ai', 'node-addon-lan
 if (fs.existsSync(landlockEntry) && !fs.existsSync(landlockDst)) {
   fs.cpSync(landlockEntry, landlockDst, { recursive: true })
   console.log('[build-harness] 已补 landlock 入口包链接')
+}
+
+// dsh 0.1.1-rc.2+:dsh-web-app 运行期经 require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
+// 解析前端 dist;该 workspace 包(即 apps/web)在 install --prod + materialize 后
+// 顶层 node_modules 缺失(仅嵌在 bundle 自身 node_modules 下,启动实例解析不到)。
+// 与 landlock 同款"缺失即补齐":拷贝 apps/web 到顶层 @deepseek-ai(13M,dist 11M)。
+const feEntry = path.join(h, 'apps', 'web')
+const feDst = path.join(h, 'node_modules', '@deepseek-ai', 'dsh-web-frontend')
+if (fs.existsSync(feEntry) && !fs.existsSync(feDst)) {
+  fs.cpSync(feEntry, feDst, { recursive: true })
+  console.log('[build-harness] 已补 dsh-web-frontend 顶层链接(拷贝 apps/web)')
 }
 
 fs.rmSync(path.join(h, '.git'), { recursive: true, force: true })

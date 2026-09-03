@@ -3,7 +3,7 @@
 > **维护指令**:每次更新本文件时,在回复中输出一行 `666`(与根目录 HANDOFF.md 统一)。
 
 > **用途**:记录**桌面端壳**(deepseek-harness-desktop 仓库,Electron 应用)的核心信息、架构、IPC 契约、关键坑与回滚要点。与根目录 `HANDOFF.md`(QQ 桥为主)互补:本文件专注壳本身。
-> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接;同日复核:theme.js CSS 变量数 19→20,维护指令统一 666;晚场更新:额度壳内页面 v0.2.11 + assemble 增量模式)
+> **生成时间**:2026-08-19(v0.2.6 原生优先架构定型后交接;同日复核:theme.js CSS 变量数 19→20,维护指令统一 666;晚场更新:额度壳内页面 v0.2.11 + assemble 增量模式;**2026-09-03 更新:v0.2.22→v0.3.1,上游并入 rc.2,见 §8-8**)
 > **关联**:`README.md`(特性/构建)、`PRINCIPLES.md`(理念,含 8b 复查三遍)、根目录 `HANDOFF.md`(QQ 桥/整体运行状态)
 
 ---
@@ -14,8 +14,8 @@
 |----|-----|
 | 仓库 | `https://github.com/2384241295abc/DshDesk.git`(公开;remote 名为 `DshDesk`,注意大小写) |
 | 本地路径 | `/Users/fuyunhuancheng/Documents/DshDesktop/deepseek-harness-desktop/` |
-| 当前版本 | **v0.2.22**(package.json `version`;CI #22(v0.2.22)发布中,已推送全部提交) |
-| 上游 harness | deepseek-harness 锁定 commit(`HARNESS_SOURCE` 本地源拷贝,构建时注入 QQ 桥插件) |
+| 当前版本 | **v0.3.1**(package.json `version`;含 main.js refs 凭据补丁;v0.3.1 已装 `/Applications/DeepSeekHarness.app` + adhoc 重签,**尚未切换现役**) |
+| 上游 harness | deepseek-harness **0.1.1-rc.2**(锁定 commit `b150a551`,build-harness.js 默认 HARNESS_COMMIT;旧 apiproxy 架构,QQ 桥免移植) |
 | 架构 | Electron 37 + **同层 iframe** 壳(顶栏/启动页/工作台都在 shell.html 一个 web 内容里) |
 
 **⚠️ 版本指纹铁律(规则 7)**:每次更新必须迭代 `package.json` version → 产物(assemble 后的 app)与源码 md5 一致 → DMG 以新版本命名。避免"改了代码打包的是旧产物"。
@@ -165,3 +165,7 @@ hdiutil create -volname "DeepSeek Harness" -srcfolder build/DeepSeekHarnessApp/D
 ---
 
 *交接文档结束。接管者建议:先读 `PRINCIPLES.md`(理念)→ `app/main.js`(主进程)→ `app/renderer/shell.js`(壳渲染)→ 本文件 §4.6 IPC 契约,再动手改。*
+
+## 9. 2026-09-03 变更(0.2.22→v0.3.1)
+
+8. **✅ 上游并入 rc.2 + 版本 v0.3.0→v0.3.1**:①上游锁定从 rc.5(47f9438)→ **dsh-v0.1.1-rc.2**(b150a551)(避开 0.1.2 的 ApiProxy 删除迁移;入口 `apps/cli/lib/bin.js`、tsdown、profile.ts 旧格式在 rc.2 均未变,注入脚本仅需改锁点;profile.ts 的 `web:`→`bundles:` 改版只影响 0.1.2+ 的注入需另适配)。②**build-harness.js 新增**:rc.2 起 dsh-web-app 运行期 `require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')` → prod 剪枝后顶层缺失 → 同 landlock 先例拷贝 apps/web(13M)补齐。③**materialize3.js 修复(rc.2 依赖图变化暴露)**:replicateAllVirtualSiblings 原只沿 node_modules 链下钻,组目录(如 apps/cli)的 importer 嵌套依赖链补不到(readdirp 断链)→ 新增 `scanPackageRoots` 组根"包感知下探"(backfill 780→1866);顺带修 scan IIFE 作用域 bug(`scan is not defined`→声明式函数+scan(H))。④**trim.js**:加 argv[2] 残留 dest 目标参数——默认 dest 可能是运行中应用 cwd,递归 rm 会先清文件后 rmdir EBUSY,`catch` 只防崩溃不防部分破坏现役。⑤**main.js refs 凭据补丁合回仓库**(并行线在已装 .app 上的补丁,md5 0ee2c3a1):读取先认 `refs:` 缩进键、写入清除顶层行并写 refs 段(新版 credentials-local 只认 version/refs/records 顶层)。⑥**验证全绿**:注入锚点 md5 一致 → 隔离实例 boot+QQ 双消息 → 产物 smoke(内置 node/native/__DSH_BOOT__/QQ-E2E)exit 0 → DMG VALID。⑦安装:`/Applications/DeepSeekHarness.app` = v0.3.1(main.js+package.json 同步+adhoc 重签);`installers/0.3.1.dmg` 唯一留档。⑧**⏳ 未切换现役**(挂载卷实例运行中,非必要不重启;切换=用户手动退出挂载卷应用→启动 /Applications)。

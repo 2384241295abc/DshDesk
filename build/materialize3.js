@@ -231,7 +231,7 @@ function replicateAllVirtualSiblings() {
     }
   }
   let replicated = 0
-  ;(function scan(dir) {
+  function scan(dir) {
     // 跳过 .pnpm store 自身（它是源，无需补齐）
     if (path.basename(dir) === '.pnpm') return
     // 注意：不跳过根 node_modules/@deepseek-ai —— 预填充的 workspace 包副本
@@ -263,7 +263,32 @@ function replicateAllVirtualSiblings() {
         scan(p)
       }
     }
-  })(H)
+  }
+  scan(H)
+  // 补充：scan(H) 只沿 node_modules 链下钻，组目录(如 apps/cli、packages/<group>/<pkg>、
+  // vendor/*)因自身无 node_modules 被剪枝，其 importer 嵌套依赖链(如
+  // apps/cli/node_modules/@deepseek-ai/cordis-plugin-hmr/node_modules/chokidar→readdirp)
+  // 永远补不到(.pnpm 删除后断链)。按组根做"包感知下探":到包(package.json)即停、
+  // 只扫其 node_modules，中间组目录继续下探(避免遍历包内 src)。
+  function scanPackageRoots(dir) {
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const p = path.join(dir, e.name)
+      if (e.name === 'node_modules') { scan(p); continue }
+      const nm = path.join(p, 'node_modules')
+      if (fs.existsSync(path.join(p, 'package.json'))) {
+        if (fs.existsSync(nm)) scan(nm)
+        continue
+      }
+      scanPackageRoots(p)
+    }
+  }
+  for (const group of ['apps', 'packages', 'vendor', 'website', 'examples']) {
+    const gp = path.join(H, group)
+    if (fs.existsSync(gp)) scanPackageRoots(gp)
+  }
   if (replicated > 0) console.log(`virtual siblings backfilled: ${replicated} entries`)
 }
 replicateAllVirtualSiblings()

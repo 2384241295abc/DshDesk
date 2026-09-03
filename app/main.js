@@ -112,16 +112,20 @@ const CREDENTIALS_FILE = path.join(os.homedir(), '.dsh', '.credentials.yaml')
 const DEEPSEEK_BALANCE_URL = 'https://api.deepseek.com/user/balance'
 const DEEPSEEK_RECHARGE_URL = 'https://platform.deepseek.com/top_up'
 
-/** 读取 ~/.dsh/.credentials.yaml 中的 DEEPSEEK_API_KEY(行级解析,不引入 yaml 依赖) */
+/** 读取 ~/.dsh/.credentials.yaml 中的 DEEPSEEK_API_KEY(行级解析,不引入 yaml 依赖)
+ * 新版 harness 凭据格式: 密钥位于 refs: 段下(缩进); 同时兼容旧版顶层行。 */
 function readDeepSeekApiKey() {
   try {
     const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8')
-    const m = raw.match(/^DEEPSEEK_API_KEY:\s*["']?([^"'\s]+)["']?\s*$/m)
+    // 先认 refs: 段下的缩进键(新格式), 再回退顶层行(旧格式)
+    const m = raw.match(/^\s+DEEPSEEK_API_KEY:\s*["']?([^"'\s]+)["']?\s*$/m)
+      || raw.match(/^DEEPSEEK_API_KEY:\s*["']?([^"'\s]+)["']?\s*$/m)
     return m ? m[1] : null
   } catch { return null }
 }
 
-/** 写入 DEEPSEEK_API_KEY 到 ~/.dsh/.credentials.yaml(创建目录/文件,保留其它字段) */
+/** 写入 DEEPSEEK_API_KEY 到 ~/.dsh/.credentials.yaml(创建目录/文件,保留其它字段)
+ * 新格式: 写入 refs: 段下; 同时清除旧版顶层行(新版 credentials-local 拒绝未知顶层键)。 */
 function writeDeepSeekApiKey(key) {
   const k = String(key || '').trim()
   if (!k) return false
@@ -129,14 +133,20 @@ function writeDeepSeekApiKey(key) {
     fs.mkdirSync(path.dirname(CREDENTIALS_FILE), { recursive: true })
     let raw = ''
     try { raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8') } catch { /* 新建 */ }
-    // 替换已有 DEEPSEEK_API_KEY 行,否则追加
-    const line = `DEEPSEEK_API_KEY: ${k}`
-    if (/^DEEPSEEK_API_KEY:/m.test(raw)) {
-      raw = raw.replace(/^DEEPSEEK_API_KEY:.*$/m, line)
+    // 1) 清除旧版顶层行(顶层, 非缩进) —— 它会导致新版 harness 启动报错
+    raw = raw.replace(/^DEEPSEEK_API_KEY:.*\n?/gm, '')
+    const refLine = `  DEEPSEEK_API_KEY: ${k}`
+    // 2) refs: 段下已有缩进键则替换
+    if (/^\s+DEEPSEEK_API_KEY:/m.test(raw)) {
+      raw = raw.replace(/^[ \t]+DEEPSEEK_API_KEY:.*$/m, refLine)
+    } else if (/^refs:\s*$/m.test(raw)) {
+      // 3) 有 refs: 段, 在其下方插入
+      raw = raw.replace(/^(refs:\s*)$/m, `$1\n${refLine}`)
     } else {
-      raw = raw.trimEnd() + (raw.trim() ? '\n' : '') + line + '\n'
+      // 4) 无 refs: 段, 追加完整段
+      raw = raw.trimEnd() + (raw.trim() ? '\n' : '') + `refs:\n${refLine}\n`
     }
-    fs.writeFileSync(CREDENTIALS_FILE, raw, { mode: 0o600 })
+    fs.writeFileSync(CREDENTIALS_FILE, raw.replace(/\n{3,}/g, '\n\n'), { mode: 0o600 })
     return true
   } catch { return false }
 }

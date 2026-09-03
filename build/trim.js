@@ -10,7 +10,13 @@ const path = require('node:path')
 const root = path.resolve(__dirname)
 const proj = path.dirname(root)
 const h = path.join(proj, 'resources', 'harness')
-const out = path.join(root, 'DeepSeekHarnessApp', 'resources', 'harness')
+// 可选参数指定"残留 dest harness"清理目标（默认 build/DeepSeekHarnessApp/resources/harness）。
+// 🔴 该默认目录可能是运行中应用的后端 cwd：rmSync 递归删除会先清光文件、
+// 最后 rmdir cwd 才 EBUSY——catch 只防崩溃不防部分破坏现役运行时。装配到
+// 暂存目录时必须传 argv[2] 指向安全路径（见 assemble.js 同款参数模式）。
+const out = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(root, 'DeepSeekHarnessApp', 'resources', 'harness')
 
 // 1. 删除残留的目标 harness（若被占用——如应用正在运行——则告警跳过）
 try {
